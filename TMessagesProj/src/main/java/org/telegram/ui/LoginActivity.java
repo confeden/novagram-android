@@ -1681,12 +1681,14 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         }
         MediaDataController.getInstance(currentAccount).loadStickersByEmojiOrName(AndroidUtilities.STICKERS_PLACEHOLDER_PACK_NAME, false, true);
 
-        if (!NovaPinSession.isUnlocked() && getParentActivity() != null) {
-            clearCurrentState();
-            NovaPinSession.redirectToGate(getParentActivity());
-            return;
-        }
+        // The login has to be torn down first and the gate shown on top of the
+        // result. Returning here before needFinishActivity left the sign in
+        // screen alive underneath: after creating the PIN the user came back to
+        // a code page whose state had just been cleared, and it looked frozen.
         needFinishActivity(afterSignup, res.setup_password_required, res.otherwise_relogin_days);
+        if (!NovaPinSession.isUnlocked() && getParentActivity() != null) {
+            NovaPinSession.redirectToGate(getParentActivity());
+        }
     }
 
     private void fillNextCodeParams(Bundle params, TL_account.sentEmailCode res) {
