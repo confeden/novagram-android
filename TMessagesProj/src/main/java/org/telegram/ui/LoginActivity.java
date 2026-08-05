@@ -144,6 +144,7 @@ import org.telegram.messenger.SRPHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.SerializedData;
@@ -1680,6 +1681,11 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         }
         MediaDataController.getInstance(currentAccount).loadStickersByEmojiOrName(AndroidUtilities.STICKERS_PLACEHOLDER_PACK_NAME, false, true);
 
+        if (!NovaPinSession.isUnlocked() && getParentActivity() != null) {
+            clearCurrentState();
+            NovaPinSession.redirectToGate(getParentActivity());
+            return;
+        }
         needFinishActivity(afterSignup, res.setup_password_required, res.otherwise_relogin_days);
     }
 
@@ -3235,9 +3241,28 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                             needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString("CodeExpired", R.string.CodeExpired));
                         } else if (error.text.startsWith("FLOOD_WAIT")) {
                             needShowAlert(getString(R.string.RestorePasswordNoEmailTitle), getString("FloodWait", R.string.FloodWait));
-                        } else if (error.code != -1000) {
-                            AlertsCreator.processError(currentAccount, error, LoginActivity.this, req, phoneInputData.phoneNumber);
+                        } else {
+                            String details = TextUtils.isEmpty(error.text)
+                                    ? LocaleController.formatString(R.string.NovaTelegramErrorCode, error.code)
+                                    : LocaleController.formatString(
+                                            R.string.NovaTelegramErrorDetails,
+                                            error.text,
+                                            error.code
+                                    );
+                            needShowAlert(
+                                    getString(R.string.RestorePasswordNoEmailTitle),
+                                    getString(R.string.ErrorOccurred) + "\n" + details
+                            );
                         }
+                    } else {
+                        needShowAlert(
+                                getString(R.string.RestorePasswordNoEmailTitle),
+                                getString(R.string.ErrorOccurred) + "\n"
+                                        + LocaleController.formatString(
+                                                R.string.NovaTelegramErrorCode,
+                                                error.code
+                                        )
+                        );
                     }
                 }
                 if (!isRequestingFirebaseSms) {

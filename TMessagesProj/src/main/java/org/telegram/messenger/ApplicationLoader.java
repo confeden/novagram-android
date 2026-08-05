@@ -41,6 +41,7 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ForegroundDetector;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.ui.Components.ItemOptions;
 import org.telegram.ui.IUpdateLayout;
 import org.telegram.ui.LauncherIconController;
@@ -188,7 +189,7 @@ public class ApplicationLoader extends Application {
     }
 
     public static void postInitApplication() {
-        if (applicationInited || applicationContext == null) {
+        if (!NovaPinSession.isUnlocked() || applicationInited || applicationContext == null) {
             return;
         }
         applicationInited = true;
@@ -272,6 +273,7 @@ public class ApplicationLoader extends Application {
             DownloadController.getInstance(a);
         }
         BillingController.getInstance().startConnection();
+        startPushService();
     }
 
     public ApplicationLoader() {
@@ -335,6 +337,17 @@ public class ApplicationLoader extends Application {
                 }
             }
         };
+        ForegroundDetector.getInstance().addListener(new ForegroundDetector.Listener() {
+            @Override
+            public void onBecameForeground() {
+                NovaPinSession.cancelBackgroundLock();
+            }
+
+            @Override
+            public void onBecameBackground() {
+                NovaPinSession.scheduleBackgroundLock();
+            }
+        });
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("load libs time = " + (SystemClock.elapsedRealtime() - startTime));
         }
@@ -348,6 +361,9 @@ public class ApplicationLoader extends Application {
     }
 
     public static void startPushService() {
+        if (!NovaPinSession.isUnlocked()) {
+            return;
+        }
         SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
         boolean enabled;
         if (preferences.contains("pushService")) {

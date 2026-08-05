@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.voip.VoIPPreNotificationService;
 import org.telegram.messenger.voip.VoIPService;
 import org.telegram.ui.Components.voip.VoIPHelper;
@@ -19,6 +20,9 @@ public class VoIPPermissionActivity extends Activity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		if (NovaPinSession.guardAfterSuper(this)) {
+			return;
+		}
 
 		final VoIPService service = VoIPService.getSharedInstance();
 		final boolean isVideoCall = service != null ?

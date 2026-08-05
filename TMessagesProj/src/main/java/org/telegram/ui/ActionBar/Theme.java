@@ -4776,6 +4776,7 @@ public class Theme {
 
         ThemeInfo applyingTheme = null;
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        final boolean useNovaGramDarkDefault = !preferences.contains("theme") && !preferences.contains("nighttheme");
         try {
             final ThemeInfo themeDarkBlue = themesDict.get("Dark Blue");
 
@@ -4968,7 +4969,7 @@ public class Theme {
                 oldEditorNew.commit();
             }
 
-            selectedAutoNightType = preferences.getInt("selectedAutoNightType", Build.VERSION.SDK_INT >= 29 ? AUTO_NIGHT_TYPE_SYSTEM : AUTO_NIGHT_TYPE_NONE);
+            selectedAutoNightType = preferences.getInt("selectedAutoNightType", AUTO_NIGHT_TYPE_NONE);
             autoNightScheduleByLocation = preferences.getBoolean("autoNightScheduleByLocation", false);
             autoNightBrighnessThreshold = preferences.getFloat("autoNightBrighnessThreshold", 0.25f);
             autoNightDayStartTime = preferences.getInt("autoNightDayStartTime", 22 * 60);
@@ -5030,6 +5031,17 @@ public class Theme {
         }
 
         int switchToTheme = needSwitchToTheme();
+        if (useNovaGramDarkDefault) {
+            ThemeInfo nightTheme = themesDict.get("Night");
+            if (nightTheme == null) {
+                nightTheme = currentNightTheme;
+            }
+            if (nightTheme != null) {
+                currentNightTheme = nightTheme;
+                applyingTheme = nightTheme;
+                switchToTheme = 2;
+            }
+        }
         if (switchToTheme == 2) {
             applyingTheme = currentNightTheme;
         }
