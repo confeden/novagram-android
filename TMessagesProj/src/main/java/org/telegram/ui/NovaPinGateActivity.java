@@ -619,7 +619,12 @@ public final class NovaPinGateActivity extends Activity {
     private void startCountdown(long duration) {
         handler.removeCallbacks(countdown);
         countdownDeadline = safeAdd(SystemClock.elapsedRealtime(), duration);
-        setBusy(true);
+        // The keypad deliberately stays usable while the delay runs. Hiding it
+        // also hid the emergency PIN, so an attacker only had to burn three
+        // attempts to disable the one thing the owner needs under coercion.
+        // A wrong PIN entered now is answered with LOCKED and costs no extra
+        // attempt, while the emergency PIN is checked ahead of the delay.
+        setBusy(false);
         countdown.run();
     }
 
