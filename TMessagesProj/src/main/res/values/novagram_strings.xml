@@ -47,4 +47,5 @@
     <string name="NovaDecoyHint">Message</string>
     <string name="NovaDecoySend">Send</string>
     <string name="NovaDecoyDay">Mon</string>
+    <string name="NovaDecoyAppTitle">Telegram</string>
 </resources>

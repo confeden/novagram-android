@@ -100,7 +100,9 @@ public final class NovaDecoyActivity extends Activity {
         root.removeAllViews();
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.addView(header(getString(R.string.AppName), false));
+        // Never the fork name: the decoy exists to look like an ordinary
+        // messenger, and a NovaGram header announces the opposite.
+        column.addView(header(getString(R.string.NovaDecoyAppTitle), false));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
