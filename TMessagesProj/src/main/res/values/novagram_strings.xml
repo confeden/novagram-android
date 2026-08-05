@@ -35,4 +35,15 @@
     <string name="NovaEmergencySameAsPrimary">The emergency PIN must differ from the usual one.</string>
     <string name="NovaEmergencyEnrolled">The emergency PIN is set.</string>
     <string name="NovaEmergencyFailed">The emergency PIN could not be saved.</string>
+    <string name="NovaDecoyName1">Anna</string>
+    <string name="NovaDecoyPreview1">ok, see you tomorrow</string>
+    <string name="NovaDecoyLine1">are you coming to the office tomorrow?</string>
+    <string name="NovaDecoyLine2">yes, in the morning</string>
+    <string name="NovaDecoyName2">Delivery</string>
+    <string name="NovaDecoyPreview2">Your parcel has arrived at the pickup point.</string>
+    <string name="NovaDecoyName3">Mark</string>
+    <string name="NovaDecoyPreview3">thanks!</string>
+    <string name="NovaDecoyLine3">sent you the file</string>
+    <string name="NovaDecoyHint">Message</string>
+    <string name="NovaDecoySend">Send</string>
 </resources>
