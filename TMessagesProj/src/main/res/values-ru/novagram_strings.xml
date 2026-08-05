@@ -46,4 +46,5 @@
     <string name="NovaDecoyLine3">скинул тебе файл</string>
     <string name="NovaDecoyHint">Сообщение</string>
     <string name="NovaDecoySend">Отпр.</string>
+    <string name="NovaDecoyDay">Пн</string>
 </resources>

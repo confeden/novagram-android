@@ -90,7 +90,7 @@ public final class NovaDecoyActivity extends Activity {
                 .message(getString(R.string.NovaDecoyName2),
                         getString(R.string.NovaDecoyPreview2), "09:41"));
         dialogs.add(new Dialog(getString(R.string.NovaDecoyName3),
-                getString(R.string.NovaDecoyPreview3), "Пн")
+                getString(R.string.NovaDecoyPreview3), getString(R.string.NovaDecoyDay))
                 .message("", getString(R.string.NovaDecoyLine3), "18:22")
                 .message(getString(R.string.NovaDecoyName3),
                         getString(R.string.NovaDecoyPreview3), "18:30"));

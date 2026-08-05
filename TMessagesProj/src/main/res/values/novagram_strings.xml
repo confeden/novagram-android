@@ -46,4 +46,5 @@
     <string name="NovaDecoyLine3">sent you the file</string>
     <string name="NovaDecoyHint">Message</string>
     <string name="NovaDecoySend">Send</string>
+    <string name="NovaDecoyDay">Mon</string>
 </resources>
