@@ -19,6 +19,7 @@ import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
@@ -38,6 +39,13 @@ import java.util.concurrent.Executors;
 
 /** Mandatory NovaGram PIN enrollment and unlock screen. */
 public final class NovaPinGateActivity extends Activity {
+    /**
+     * Opens the screen in the emergency PIN setup flow instead of the unlock
+     * flow. The current PIN is asked first, so the setup is not reachable by
+     * simply launching the activity.
+     */
+    public static final String EXTRA_SETUP_EMERGENCY = "novagram.setup_emergency";
+
     private static final int BACKGROUND_COLOR = Color.rgb(23, 33, 43);
     private static final int PANEL_COLOR = Color.rgb(36, 47, 61);
     private static final int PRIMARY_COLOR = Color.rgb(82, 136, 193);
@@ -114,7 +122,17 @@ public final class NovaPinGateActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // The mandatory gate cannot be bypassed through back navigation.
+        // The mandatory gate cannot be bypassed through back navigation, but
+        // the emergency setup flow is entered from an unlocked application and
+        // has to be dismissable.
+        if (isEmergencySetupRequested()) {
+            super.onBackPressed();
+        }
+    }
+
+    private boolean isEmergencySetupRequested() {
+        Intent intent = getIntent();
+        return intent != null && intent.getBooleanExtra(EXTRA_SETUP_EMERGENCY, false);
     }
 
     @Override
@@ -194,7 +212,11 @@ public final class NovaPinGateActivity extends Activity {
                         showFirstEnrollment();
                         break;
                     case ENROLLED:
-                        showUnlock();
+                        if (isEmergencySetupRequested()) {
+                            showEmergencyVerify();
+                        } else {
+                            showUnlock();
+                        }
                         if (inspection.getRetryAfterMillis() > 0L) {
                             startCountdown(inspection.getRetryAfterMillis());
                         }
@@ -241,6 +263,102 @@ public final class NovaPinGateActivity extends Activity {
         actionPanel.removeAllViews();
         setBusy(false);
         renderKeypad();
+    }
+
+    private void showEmergencyVerify() {
+        mode = Mode.EMERGENCY_VERIFY;
+        clearInput();
+        clearSecret(firstPin);
+        firstPin = null;
+        titleView.setText(R.string.NovaEmergencyVerifyTitle);
+        descriptionView.setText(R.string.NovaEmergencyVerifyDescription);
+        errorView.setText("");
+        actionPanel.removeAllViews();
+        setBusy(false);
+        renderKeypad();
+    }
+
+    private void showEmergencyFirst() {
+        mode = Mode.EMERGENCY_FIRST;
+        clearInput();
+        clearSecret(firstPin);
+        firstPin = null;
+        titleView.setText(R.string.NovaEmergencyCreateTitle);
+        descriptionView.setText(R.string.NovaEmergencyCreateDescription);
+        errorView.setText("");
+        actionPanel.removeAllViews();
+        renderKeypad();
+    }
+
+    private void showEmergencyConfirm() {
+        mode = Mode.EMERGENCY_CONFIRM;
+        clearInput();
+        titleView.setText(R.string.NovaEmergencyConfirmTitle);
+        descriptionView.setText(R.string.NovaPinHiddenInputHint);
+        errorView.setText("");
+        renderKeypad();
+    }
+
+    private void beginEmergencyGate(char[] pin) {
+        setBusy(true);
+        descriptionView.setText(R.string.NovaPinCheckingPin);
+        errorView.setText("");
+        executor.execute(() -> {
+            NovaPinVault.VerificationResult result;
+            try {
+                result = vault.verify(pin);
+            } finally {
+                clearSecret(pin);
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                setBusy(false);
+                // Entering the already stored emergency PIN here reports
+                // EMERGENCY and lands in this branch as a plain refusal. That
+                // is deliberate: setting a PIN up must never destroy the data.
+                if (result.getStatus() == NovaPinVault.VerificationStatus.ACCEPTED) {
+                    showEmergencyFirst();
+                } else {
+                    showEmergencyVerify();
+                    errorView.setText(R.string.NovaPinIncorrect);
+                    renderKeypad();
+                }
+            });
+        });
+    }
+
+    private void beginEmergencyEnrollment(char[] pin) {
+        setBusy(true);
+        errorView.setText("");
+        executor.execute(() -> {
+            NovaPinVault.EmergencyStatus status;
+            try {
+                status = vault.enrollEmergency(pin);
+            } finally {
+                clearSecret(pin);
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                setBusy(false);
+                if (status == NovaPinVault.EmergencyStatus.ENROLLED) {
+                    Toast.makeText(this, R.string.NovaEmergencyEnrolled, Toast.LENGTH_LONG).show();
+                    finish();
+                } else if (status == NovaPinVault.EmergencyStatus.SAME_AS_PRIMARY) {
+                    showEmergencyFirst();
+                    errorView.setText(R.string.NovaEmergencySameAsPrimary);
+                } else if (status == NovaPinVault.EmergencyStatus.INVALID_PIN) {
+                    showEmergencyFirst();
+                    errorView.setText(R.string.NovaPinInvalidLength);
+                } else {
+                    showEmergencyFirst();
+                    errorView.setText(R.string.NovaEmergencyFailed);
+                }
+            });
+        });
     }
 
     private void showSoftwareWarning() {
@@ -351,6 +469,25 @@ public final class NovaPinGateActivity extends Activity {
             beginEnrollment(confirmed, false);
         } else if (mode == Mode.UNLOCK) {
             beginVerification(entered);
+        } else if (mode == Mode.EMERGENCY_VERIFY) {
+            beginEmergencyGate(entered);
+        } else if (mode == Mode.EMERGENCY_FIRST) {
+            clearSecret(firstPin);
+            firstPin = entered;
+            showEmergencyConfirm();
+        } else if (mode == Mode.EMERGENCY_CONFIRM) {
+            if (!constantTimeEquals(firstPin, entered)) {
+                clearSecret(entered);
+                clearSecret(firstPin);
+                firstPin = null;
+                showEmergencyFirst();
+                errorView.setText(R.string.NovaPinMismatch);
+                return;
+            }
+            clearSecret(entered);
+            char[] confirmed = firstPin;
+            firstPin = null;
+            beginEmergencyEnrollment(confirmed);
         } else {
             clearSecret(entered);
         }
@@ -572,6 +709,9 @@ public final class NovaPinGateActivity extends Activity {
         ENROLL_CONFIRM,
         SOFTWARE_WARNING,
         UNLOCK,
+        EMERGENCY_VERIFY,
+        EMERGENCY_FIRST,
+        EMERGENCY_CONFIRM,
         FATAL
     }
 }

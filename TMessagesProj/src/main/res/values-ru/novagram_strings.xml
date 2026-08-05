@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="NovaPinTitle">Защита NovaGram</string>
+    <string name="NovaPinCheckingProtection">Проверка защищённого хранилища…</string>
+    <string name="NovaPinCreateTitle">Создайте PIN приложения</string>
+    <string name="NovaPinCreateDescription">Создайте PIN из 4–6 цифр для защиты аккаунта Telegram, в который выполнен вход. Введённые цифры и длина PIN не отображаются. Восстановления PIN нет: его утрата может сделать локальные данные недоступными.</string>
+    <string name="NovaPinConfirmTitle">Подтвердите PIN</string>
+    <string name="NovaPinUnlockTitle">Разблокируйте NovaGram</string>
+    <string name="NovaPinHiddenInputHint">Введите PIN и нажмите «Продолжить». Введённые цифры и их количество намеренно скрыты.</string>
+    <string name="NovaPinClear">Очистить</string>
+    <string name="NovaPinContinue">Продолжить</string>
+    <string name="NovaPinInvalidLength">PIN должен содержать 4–6 цифр.</string>
+    <string name="NovaPinMismatch">Значения PIN не совпали. Создайте PIN заново.</string>
+    <string name="NovaPinIncorrect">Неверный PIN. Порядок клавиш изменён.</string>
+    <string name="NovaPinLocked">Повторите через %1$d:%2$02d:%3$02d.</string>
+    <string name="NovaPinCreatingProtection">Создание защищённого хранилища…</string>
+    <string name="NovaPinCheckingPin">Проверка PIN…</string>
+    <string name="NovaPinSoftwareTitle">Нет аппаратно защищённого хранилища</string>
+    <string name="NovaPinSoftwareWarning">Устройство не предоставило ключ StrongBox или TEE. Программная защита слабее и не обеспечивает такую же устойчивость к скомпрометированной операционной системе. Рекомендуется более современное устройство с защищённым оборудованием.</string>
+    <string name="NovaPinUseSoftware">Использовать программную защиту</string>
+    <string name="NovaPinChooseAnotherDevice">Не продолжать</string>
+    <string name="NovaPinCorruptState">Защищённое состояние PIN отсутствует или повреждено. NovaGram блокирует доступ и не открывает данные Telegram. Переустанавливайте приложение только если потеря локальных данных допустима.</string>
+    <string name="NovaPinStorageUnavailable">Защищённое хранилище временно недоступно. NovaGram не понижает уровень защиты и не открывает данные Telegram без PIN.</string>
+    <string name="NovaPinRetry">Повторить</string>
+    <string name="NovaCallsDisabled">Звонки отключены до реализации защищённой маршрутизации сигнализации и медиатрафика.</string>
+    <string name="NovaTelegramErrorCode">Код ошибки Telegram: %1$d</string>
+    <string name="NovaTelegramErrorDetails">%1$s (код %2$d)</string>
+    <string name="NovaEmergencyTitle">Аварийный PIN</string>
+    <string name="NovaEmergencySettingsTitle">Аварийный PIN NovaGram</string>
+    <string name="NovaEmergencyVerifyTitle">Подтвердите текущий PIN</string>
+    <string name="NovaEmergencyVerifyDescription">Введите PIN, которым вы разблокируете NovaGram.</string>
+    <string name="NovaEmergencyCreateTitle">Создайте аварийный PIN</string>
+    <string name="NovaEmergencyCreateDescription">Аварийный PIN вводится вместо обычного под принуждением. Он никогда не разблокирует NovaGram: выполняется выход из всех аккаунтов и уничтожение локальных данных, после чего приложение продолжает работать как пустой клиент. Облачная история Telegram и копии у собеседников не удаляются. Аварийный PIN должен отличаться от обычного.</string>
+    <string name="NovaEmergencyConfirmTitle">Повторите аварийный PIN</string>
+    <string name="NovaEmergencySameAsPrimary">Аварийный PIN должен отличаться от обычного.</string>
+    <string name="NovaEmergencyEnrolled">Аварийный PIN установлен.</string>
+    <string name="NovaEmergencyFailed">Не удалось сохранить аварийный PIN.</string>
+</resources>

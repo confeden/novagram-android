@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="NovaPinTitle">NovaGram protection</string>
+    <string name="NovaPinCheckingProtection">Checking protected storage…</string>
+    <string name="NovaPinCreateTitle">Create an application PIN</string>
+    <string name="NovaPinCreateDescription">Create a 4–6 digit PIN to protect the Telegram account you signed in to. The entered digits and PIN length are not displayed. There is no PIN recovery: losing it can make local data inaccessible.</string>
+    <string name="NovaPinConfirmTitle">Confirm the PIN</string>
+    <string name="NovaPinUnlockTitle">Unlock NovaGram</string>
+    <string name="NovaPinHiddenInputHint">Enter the PIN and press Continue. The entered digits and their count are intentionally hidden.</string>
+    <string name="NovaPinClear">Clear</string>
+    <string name="NovaPinContinue">Continue</string>
+    <string name="NovaPinInvalidLength">The PIN must contain 4–6 digits.</string>
+    <string name="NovaPinMismatch">The PIN values did not match. Create the PIN again.</string>
+    <string name="NovaPinIncorrect">Incorrect PIN. The keypad order has been changed.</string>
+    <string name="NovaPinLocked">Try again in %1$d:%2$02d:%3$02d.</string>
+    <string name="NovaPinCreatingProtection">Creating protected storage…</string>
+    <string name="NovaPinCheckingPin">Checking the PIN…</string>
+    <string name="NovaPinSoftwareTitle">No hardware-backed storage</string>
+    <string name="NovaPinSoftwareWarning">This device did not provide a StrongBox or TEE-backed key. Software protection is weaker and cannot provide the same resistance to a compromised operating system. A newer device with secure hardware is recommended.</string>
+    <string name="NovaPinUseSoftware">Use software protection</string>
+    <string name="NovaPinChooseAnotherDevice">Do not continue</string>
+    <string name="NovaPinCorruptState">Protected PIN state is missing or damaged. NovaGram fails closed and will not open Telegram data. Reinstall the application only if losing its local data is acceptable.</string>
+    <string name="NovaPinStorageUnavailable">Protected storage is temporarily unavailable. NovaGram will not downgrade or open Telegram data without PIN protection.</string>
+    <string name="NovaPinRetry">Retry</string>
+    <string name="NovaCallsDisabled">Calls are disabled until protected signaling and media routing are implemented.</string>
+    <string name="NovaTelegramErrorCode">Telegram error code: %1$d</string>
+    <string name="NovaTelegramErrorDetails">%1$s (code %2$d)</string>
+    <string name="NovaEmergencyTitle">Emergency PIN</string>
+    <string name="NovaEmergencySettingsTitle">NovaGram emergency PIN</string>
+    <string name="NovaEmergencyVerifyTitle">Confirm the current PIN</string>
+    <string name="NovaEmergencyVerifyDescription">Enter the PIN you use to unlock NovaGram.</string>
+    <string name="NovaEmergencyCreateTitle">Create the emergency PIN</string>
+    <string name="NovaEmergencyCreateDescription">The emergency PIN is entered instead of the usual one under coercion. It never unlocks NovaGram: it signs out of every account and destroys the local data, after which the application keeps working as an empty client. The Telegram cloud history and the copies held by other people are not removed. It must differ from the usual PIN.</string>
+    <string name="NovaEmergencyConfirmTitle">Confirm the emergency PIN</string>
+    <string name="NovaEmergencySameAsPrimary">The emergency PIN must differ from the usual one.</string>
+    <string name="NovaEmergencyEnrolled">The emergency PIN is set.</string>
+    <string name="NovaEmergencyFailed">The emergency PIN could not be saved.</string>
+</resources>
