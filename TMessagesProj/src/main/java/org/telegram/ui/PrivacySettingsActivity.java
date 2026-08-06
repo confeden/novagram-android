@@ -40,6 +40,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.FileLog;
@@ -713,13 +714,17 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
 
     public void updateRows(boolean notify) {
         passkeysRow = -1;
+        novaEmergencyPinRow = -1;
         rowCount = 0;
 
         securitySectionRow = rowCount++;
         passwordRow = rowCount++;
         autoDeleteMesages = rowCount++;
         passcodeRow = rowCount++;
-        novaEmergencyPinRow = rowCount++;
+        // The emergency PIN moved to the dedicated NovaGram settings section, so
+        // it no longer appears in this stock Telegram screen. The row id stays
+        // declared (and unmatched at -1) to keep the rest of the adapter intact.
+        novaEmergencyPinRow = -1;
         if (getMessagesController().config.settingsDisplayPasskeys.get() && Build.VERSION.SDK_INT >= 28 && BuildVars.SUPPORTS_PASSKEYS) {
             passkeysRow = rowCount++;
         }

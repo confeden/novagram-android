@@ -32,6 +32,7 @@ import androidx.annotation.NonNull;
 import androidx.collection.LongSparseArray;
 
 import org.telegram.PhoneFormat.PhoneFormat;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
@@ -421,7 +422,11 @@ public class ContactsController extends BaseController {
             }
             if (getUserConfig().isClientActivated()) {
                 readContacts();
-                if (systemAccount == null) {
+                if (systemAccount == null && !NovaDecoyState.isActive()) {
+                    // No system account while the decoy is on. It is what
+                    // ContactsController writes the address book through, and
+                    // the invented people must never reach the real phone book
+                    // of the person holding the device.
                     try {
                         systemAccount = new Account("" + getUserConfig().getClientUserId(), "org.telegram.messenger");
                         am.addAccountExplicitly(systemAccount, "", null);

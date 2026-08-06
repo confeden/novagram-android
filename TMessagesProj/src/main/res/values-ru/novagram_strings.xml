@@ -9,6 +9,15 @@
     <string name="NovaPinHiddenInputHint">Введите PIN и нажмите «Продолжить». Введённые цифры и их количество намеренно скрыты.</string>
     <string name="NovaPinClear">Очистить</string>
     <string name="NovaPinContinue">Продолжить</string>
+    <string name="NovaPinContinueWithoutPin">Продолжить без PIN</string>
+    <string name="NovaSettingsTitle">NovaGram</string>
+    <string name="NovaSettingsRowSubtitle">PIN и защита от скриншотов</string>
+    <string name="NovaSettingsSecurityHeader">Безопасность</string>
+    <string name="NovaSettingsAppPin">PIN приложения</string>
+    <string name="NovaSettingsPinsInfo">PIN приложения защищает доступ после входа. Аварийный PIN, введённый вместо него под принуждением, выполняет выход из всех аккаунтов и уничтожает локальные данные.</string>
+    <string name="NovaSettingsPrivacyHeader">Конфиденциальность</string>
+    <string name="NovaSettingsScreenshotProtection">Защита от скриншотов</string>
+    <string name="NovaSettingsScreenshotInfo">Блокирует снимки и запись экрана в приватных и секретных чатах. Публичные каналы и группы остаются доступными для обмена.</string>
     <string name="NovaPinInvalidLength">PIN должен содержать 4–6 цифр.</string>
     <string name="NovaPinMismatch">Значения PIN не совпали. Создайте PIN заново.</string>
     <string name="NovaPinIncorrect">Неверный PIN. Порядок клавиш изменён.</string>
@@ -35,17 +44,4 @@
     <string name="NovaEmergencySameAsPrimary">Аварийный PIN должен отличаться от обычного.</string>
     <string name="NovaEmergencyEnrolled">Аварийный PIN установлен.</string>
     <string name="NovaEmergencyFailed">Не удалось сохранить аварийный PIN.</string>
-    <string name="NovaDecoyName1">Анна</string>
-    <string name="NovaDecoyPreview1">хорошо, до завтра</string>
-    <string name="NovaDecoyLine1">завтра будешь в офисе?</string>
-    <string name="NovaDecoyLine2">да, с утра</string>
-    <string name="NovaDecoyName2">Доставка</string>
-    <string name="NovaDecoyPreview2">Ваша посылка прибыла в пункт выдачи.</string>
-    <string name="NovaDecoyName3">Марк</string>
-    <string name="NovaDecoyPreview3">спасибо!</string>
-    <string name="NovaDecoyLine3">скинул тебе файл</string>
-    <string name="NovaDecoyHint">Сообщение</string>
-    <string name="NovaDecoySend">Отпр.</string>
-    <string name="NovaDecoyDay">Пн</string>
-    <string name="NovaDecoyAppTitle">Telegram</string>
 </resources>

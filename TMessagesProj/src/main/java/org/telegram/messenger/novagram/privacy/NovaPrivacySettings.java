@@ -25,6 +25,7 @@ public final class NovaPrivacySettings {
     private static final String KEY_SCREENSHOT_POLICY = "screenshot_policy";
     private static final String KEY_METADATA_POLICY = "metadata_policy";
     private static final String KEY_DOH_PROVIDER_ORDER = "doh_provider_order";
+    private static final String KEY_APP_PIN_DECLINED = "app_pin_declined";
     private static final String FEATURE_PREFIX = "feature_";
 
     private final SharedPreferences globalPreferences;
@@ -174,6 +175,20 @@ public final class NovaPrivacySettings {
             encoded.append(provider.getId());
         }
         globalPreferences.edit().putString(KEY_DOH_PROVIDER_ORDER, encoded.toString()).apply();
+    }
+
+    /**
+     * Whether the user chose to continue without an application PIN when it was
+     * offered after signing in. Non-sensitive: it only suppresses the PIN
+     * prompt, it is not a verifier. Enrolling a PIN later clears it, which
+     * re-enables the gate and the emergency PIN.
+     */
+    public boolean isAppPinDeclined() {
+        return readBoolean(globalPreferences, KEY_APP_PIN_DECLINED, false);
+    }
+
+    public void setAppPinDeclined(boolean declined) {
+        globalPreferences.edit().putBoolean(KEY_APP_PIN_DECLINED, declined).apply();
     }
 
     private SharedPreferences preferencesFor(NovaPrivacyFeature feature) {

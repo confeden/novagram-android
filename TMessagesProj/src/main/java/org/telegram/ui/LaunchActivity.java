@@ -141,7 +141,6 @@ import org.telegram.messenger.utils.LeakDetector;
 import org.telegram.messenger.utils.WindowVisibilityManager;
 import org.telegram.messenger.video.VideoAds;
 import org.telegram.messenger.voip.VideoCapturerDevice;
-import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.voip.VoIPGroupNotification;
 import org.telegram.messenger.voip.VoIPPendingCall;
@@ -390,16 +389,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        if (NovaDecoyState.isActive(this)) {
-            // Checked before the PIN gate: the decoy never asks for a PIN, and
-            // asking would announce that something was destroyed here.
-            novaPinGateEarlyExit = true;
-            super.onCreate(savedInstanceState);
-            startActivity(new Intent(this, NovaDecoyActivity.class));
-            overridePendingTransition(0, 0);
-            finish();
-            return;
-        }
+        // No decoy branch here on purpose. The decoy is not a screen of its
+        // own any more: it is this same activity, signed in to an invented
+        // account with the network closed at ConnectionsManager. The PIN gate
+        // below lets it through because NovaPinSession treats the decoy as
+        // unlocked — asking for a PIN would announce that something was
+        // destroyed on this phone.
         if (!NovaPinSession.isUnlocked()) {
             novaPinGateEarlyExit = true;
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);

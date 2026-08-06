@@ -27,7 +27,32 @@ public final class NovaPinSession {
     }
 
     public static boolean isUnlocked() {
+        if (NovaDecoyState.isActive()) {
+            // The decoy has an account record of its own and would otherwise
+            // trip the gate. Asking for a PIN there would announce that
+            // something was destroyed on this phone, which is the one thing
+            // the decoy exists to avoid.
+            return true;
+        }
+        if (appPinDeclined()) {
+            // The application PIN was offered after signing in and the user
+            // chose to continue without one. The gate stays out of the way
+            // until a PIN is set from NovaGram settings, which clears the flag.
+            return true;
+        }
         return isAccessAllowed(hasAuthenticatedAccount(), UNLOCKED.get());
+    }
+
+    private static boolean appPinDeclined() {
+        Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            return false;
+        }
+        try {
+            return NovaPrivacySettings.global(context).isAppPinDeclined();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     static boolean isAccessAllowed(boolean hasAuthenticatedAccount, boolean sessionUnlocked) {

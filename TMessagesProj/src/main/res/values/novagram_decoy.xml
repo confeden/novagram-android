@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Content of the decoy shown after the emergency PIN.
+
+  The conversations are deliberately dull: errands, shifts, a parcel, a broken
+  washing machine. A decoy full of interesting content invites the very
+  question it exists to avoid. Nothing here names NovaGram, security, privacy
+  or anything a reader could recognise as staged.
+
+  Message items are "speaker|text". Speaker 0 is the account owner, 1 and above
+  are the other participants of that conversation in order.
+-->
+<resources>
+    <string name="NovaDecoySelfFirstName">Alex</string>
+    <string name="NovaDecoySelfLastName"></string>
+    <!-- Only used when the wipe could not capture the real number. -->
+    <string name="NovaDecoyPhonePrefix">44</string>
+
+    <!-- "First|Last" of everyone in the address book. The first six also have
+         conversations; the rest are contacts without one, as in any real
+         address book. -->
+    <string-array name="NovaDecoyContacts">
+        <item>Marina|Kovaleva</item>
+        <item>Ilya|</item>
+        <item>Mom|</item>
+        <item>Dad|</item>
+        <item>Sergey|repairs</item>
+        <item>Olga|neighbour</item>
+        <item>Victor|neighbour</item>
+        <item>Kate|Miller</item>
+        <item>Dmitry|Orlov</item>
+        <item>Lena|</item>
+    </string-array>
+
+    <string name="NovaDecoyGroupFamily">Family</string>
+    <string name="NovaDecoyGroupBuilding">Building 14, entrance 2</string>
+    <string name="NovaDecoyChannelDeals">Deals nearby</string>
+    <string name="NovaDecoyServiceDelivery">Delivery</string>
+
+    <string-array name="NovaDecoySavedMessages">
+        <item>0|Wi-Fi guest: 8462 0194</item>
+        <item>0|milk, bread, coffee, batteries</item>
+        <item>0|meter readings before the 25th</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatColleague">
+        <item>1|are you coming in tomorrow?</item>
+        <item>0|yes, in the morning</item>
+        <item>1|good, the report is on the shared drive</item>
+        <item>0|got it, I will look at it before the meeting</item>
+        <item>1|the meeting moved to 11</item>
+        <item>0|ok</item>
+        <item>1|and Pavel asked for last month numbers</item>
+        <item>0|I will send them today</item>
+        <item>1|thanks</item>
+        <item>0|no problem</item>
+        <item>1|see you tomorrow</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatFamily">
+        <item>1|who is picking up the parcel?</item>
+        <item>0|I can, after work</item>
+        <item>2|do not forget the bread</item>
+        <item>0|ok</item>
+        <item>1|dinner at seven</item>
+        <item>2|I will be late, start without me</item>
+        <item>0|fine</item>
+        <item>1|there is soup in the fridge</item>
+        <item>0|thanks</item>
+        <item>2|the car is in the shop until Friday</item>
+        <item>1|then we go by bus</item>
+        <item>0|I will manage</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatFriend">
+        <item>1|gym tonight?</item>
+        <item>0|cannot, working late</item>
+        <item>1|tomorrow then</item>
+        <item>0|tomorrow works</item>
+        <item>1|same time</item>
+        <item>0|yes</item>
+        <item>1|bring the ball, the one at the club is flat</item>
+        <item>0|ok</item>
+        <item>1|see you</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatDelivery">
+        <item>1|Your order has been shipped. Expected delivery Thursday.</item>
+        <item>1|Your parcel has arrived at the pickup point. Code 4471.</item>
+        <item>1|The pickup point works until 21:00.</item>
+        <item>1|Your parcel has been handed over. Thank you for your order.</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatBuilding">
+        <item>1|hot water off on Tuesday from 9 to 18</item>
+        <item>2|again?</item>
+        <item>1|that is what the notice says</item>
+        <item>0|thanks for the warning</item>
+        <item>2|someone is parked across two spaces again</item>
+        <item>1|the silver one?</item>
+        <item>2|yes</item>
+        <item>0|I will tell the manager</item>
+        <item>1|the lift is fixed</item>
+        <item>2|finally</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatRepairs">
+        <item>1|Good afternoon. I can come on Saturday morning.</item>
+        <item>0|Saturday morning works</item>
+        <item>1|Between 10 and 12, is that ok?</item>
+        <item>0|yes</item>
+        <item>1|Is it the same washing machine?</item>
+        <item>0|yes, it stopped draining</item>
+        <item>1|Understood, I will bring the pump.</item>
+        <item>0|thank you</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChannelPosts">
+        <item>1|Coffee beans 1 kg, 30 percent off until Sunday.</item>
+        <item>1|Winter tyres, second set at half price.</item>
+        <item>1|New bakery on the corner, free tea before 10.</item>
+        <item>1|Household chemicals, three for the price of two.</item>
+        <item>1|Grocery delivery is free this week from 2000.</item>
+    </string-array>
+</resources>

@@ -56,14 +56,14 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
         }
 
         release {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
@@ -133,7 +133,7 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 26
+        minSdkVersion 34
         targetSdkVersion 35
         versionName APP_VERSION_NAME
         ndkVersion "27.2.12479018"

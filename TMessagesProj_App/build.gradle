@@ -43,14 +43,14 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
         }
 
         release {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
@@ -128,7 +128,7 @@ android {
             sourceSets.release {
                 manifest.srcFile '../TMessagesProj/config/release/AndroidManifest_SDK23.xml'
             }
-            minSdkVersion 23
+            minSdkVersion 34
             ext {
                 abiVersionCode = 2
             }
@@ -171,7 +171,7 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 34
         targetSdkVersion 35
         versionName APP_VERSION_NAME
         ndkVersion "27.2.12479018"
@@ -198,4 +198,6 @@ android {
     }
 }
 
-apply plugin: 'com.google.gms.google-services'
+if ((project.findProperty("ENABLE_GOOGLE_SERVICES") ?: "false").toBoolean()) {
+    apply plugin: 'com.google.gms.google-services'
+}

@@ -41,6 +41,8 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ForegroundDetector;
+import org.telegram.messenger.novagram.privacy.NovaDecoyAccount;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.ui.Components.ItemOptions;
 import org.telegram.ui.IUpdateLayout;
@@ -246,6 +248,8 @@ public class ApplicationLoader extends Application {
 
         SharedConfig.loadConfig();
         SharedPrefsHelper.init(applicationContext);
+        // Before the first loadConfig of the process: it caches what it reads.
+        NovaDecoyAccount.ensure(applicationContext);
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
             UserConfig.getInstance(a).loadConfig();
             MessagesController.getInstance(a);
@@ -261,8 +265,14 @@ public class ApplicationLoader extends Application {
             }
         }
 
+        boolean decoy = NovaDecoyState.isActive(applicationContext);
+
         ApplicationLoader app = (ApplicationLoader) ApplicationLoader.applicationContext;
-        app.initPushServices();
+        if (!decoy) {
+            // Push and billing reach Google, not Telegram, but the decoy is
+            // supposed to be an application that talks to nobody at all.
+            app.initPushServices();
+        }
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("app initied");
         }
@@ -272,8 +282,10 @@ public class ApplicationLoader extends Application {
             ContactsController.getInstance(a).checkAppAccount();
             DownloadController.getInstance(a);
         }
-        BillingController.getInstance().startConnection();
-        startPushService();
+        if (!decoy) {
+            BillingController.getInstance().startConnection();
+            startPushService();
+        }
     }
 
     public ApplicationLoader() {
@@ -320,6 +332,9 @@ public class ApplicationLoader extends Application {
             applicationContext = getApplicationContext();
         }
 
+        // Read once, before anything can ask without a context at hand.
+        NovaDecoyState.isActive(applicationContext);
+
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
 
         try {
@@ -361,7 +376,7 @@ public class ApplicationLoader extends Application {
     }
 
     public static void startPushService() {
-        if (!NovaPinSession.isUnlocked()) {
+        if (!NovaPinSession.isUnlocked() || NovaDecoyState.isActive()) {
             return;
         }
         SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();

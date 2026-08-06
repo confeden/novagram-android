@@ -1,10 +1,15 @@
 package org.telegram.messenger.novagram.privacy;
 
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.text.TextUtils;
+import android.util.Base64;
 
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.UserConfig;
+import org.telegram.tgnet.SerializedData;
+import org.telegram.tgnet.TLRPC;
 
 import java.io.File;
 
@@ -31,7 +36,12 @@ public final class NovaEmergencyWipe {
         Context app = context.getApplicationContext();
         Context target = app != null ? app : context;
 
-        NovaDecoyState.arm(target);
+        // Read before anything is cleared. The decoy keeps showing this name
+        // and number, because they are the part of the account whoever holds
+        // the phone can already check elsewhere.
+        String[] identity = captureIdentity();
+
+        NovaDecoyState.arm(target, identity[0], identity[1], identity[2]);
         requestServerLogout();
         clearLocalAccounts();
         destroyPinState();
@@ -39,7 +49,72 @@ public final class NovaEmergencyWipe {
         // Re-armed last, because the sweep above removes the marker together
         // with the PIN state: the decoy must not inherit a PIN prompt, and the
         // two live in the same protected directory.
-        NovaDecoyState.arm(target);
+        NovaDecoyState.arm(target, identity[0], identity[1], identity[2]);
+    }
+
+    private static String[] captureIdentity() {
+        String[] identity = { "", "", "" };
+        try {
+            TLRPC.User user = findSelfUser();
+            if (user != null) {
+                identity[0] = user.first_name != null ? user.first_name : "";
+                identity[1] = user.last_name != null ? user.last_name : "";
+                identity[2] = user.phone != null ? user.phone : "";
+            }
+        } catch (Throwable ignored) {
+        }
+        return identity;
+    }
+
+    /**
+     * Finds the destroyed account's own user record for the decoy.
+     *
+     * <p>The emergency PIN is entered on the cold-start gate, which runs before
+     * the Telegram client loads {@link UserConfig} into memory. On that path
+     * {@code getCurrentUser()} is null, so relying on it captured nothing and
+     * the decoy showed a blank name and number. The persisted account blob is
+     * on disk the whole time, so it is read and deserialized directly here,
+     * mirroring how {@code NovaPinSession} already reads the same preference to
+     * decide the gate is needed. The in-memory config is still tried first for
+     * the warm path of a wipe triggered from an unlocked session.</p>
+     */
+    private static TLRPC.User findSelfUser() {
+        for (int account = 0; account < UserConfig.MAX_ACCOUNT_COUNT; account++) {
+            try {
+                TLRPC.User user = UserConfig.getInstance(account).getCurrentUser();
+                if (user != null) {
+                    return user;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            return null;
+        }
+        for (int account = 0; account < UserConfig.MAX_ACCOUNT_COUNT; account++) {
+            try {
+                String preferencesName = account == 0 ? "userconfing" : "userconfig" + account;
+                SharedPreferences preferences =
+                        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE);
+                String encoded = preferences.getString("user", null);
+                if (TextUtils.isEmpty(encoded)) {
+                    continue;
+                }
+                byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+                if (bytes == null || bytes.length == 0) {
+                    continue;
+                }
+                SerializedData data = new SerializedData(bytes);
+                TLRPC.User user = TLRPC.User.TLdeserialize(data, data.readInt32(false), false);
+                data.cleanup();
+                if (user != null) {
+                    return user;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     private static void destroyPinState() {

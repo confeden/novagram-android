@@ -9,6 +9,15 @@
     <string name="NovaPinHiddenInputHint">Enter the PIN and press Continue. The entered digits and their count are intentionally hidden.</string>
     <string name="NovaPinClear">Clear</string>
     <string name="NovaPinContinue">Continue</string>
+    <string name="NovaPinContinueWithoutPin">Continue without a PIN</string>
+    <string name="NovaSettingsTitle">NovaGram</string>
+    <string name="NovaSettingsRowSubtitle">PIN and screenshot protection</string>
+    <string name="NovaSettingsSecurityHeader">Security</string>
+    <string name="NovaSettingsAppPin">Application PIN</string>
+    <string name="NovaSettingsPinsInfo">The application PIN protects access after signing in. The emergency PIN, entered instead of it under coercion, signs out of every account and destroys local data.</string>
+    <string name="NovaSettingsPrivacyHeader">Privacy</string>
+    <string name="NovaSettingsScreenshotProtection">Block screenshots</string>
+    <string name="NovaSettingsScreenshotInfo">Blocks screenshots and screen recording in private chats and secret chats. Public channels and groups stay shareable.</string>
     <string name="NovaPinInvalidLength">The PIN must contain 4–6 digits.</string>
     <string name="NovaPinMismatch">The PIN values did not match. Create the PIN again.</string>
     <string name="NovaPinIncorrect">Incorrect PIN. The keypad order has been changed.</string>
@@ -35,17 +44,4 @@
     <string name="NovaEmergencySameAsPrimary">The emergency PIN must differ from the usual one.</string>
     <string name="NovaEmergencyEnrolled">The emergency PIN is set.</string>
     <string name="NovaEmergencyFailed">The emergency PIN could not be saved.</string>
-    <string name="NovaDecoyName1">Anna</string>
-    <string name="NovaDecoyPreview1">ok, see you tomorrow</string>
-    <string name="NovaDecoyLine1">are you coming to the office tomorrow?</string>
-    <string name="NovaDecoyLine2">yes, in the morning</string>
-    <string name="NovaDecoyName2">Delivery</string>
-    <string name="NovaDecoyPreview2">Your parcel has arrived at the pickup point.</string>
-    <string name="NovaDecoyName3">Mark</string>
-    <string name="NovaDecoyPreview3">thanks!</string>
-    <string name="NovaDecoyLine3">sent you the file</string>
-    <string name="NovaDecoyHint">Message</string>
-    <string name="NovaDecoySend">Send</string>
-    <string name="NovaDecoyDay">Mon</string>
-    <string name="NovaDecoyAppTitle">Telegram</string>
 </resources>

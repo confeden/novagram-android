@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,6 +28,7 @@ import org.telegram.messenger.novagram.privacy.NovaEmergencyWipe;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaPinVault;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyContract;
+import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
 import org.telegram.messenger.novagram.privacy.NovaSecretWiper;
 
 import java.security.SecureRandom;
@@ -243,6 +245,28 @@ public final class NovaPinGateActivity extends Activity {
         errorView.setText("");
         actionPanel.removeAllViews();
         renderKeypad();
+        // The application PIN is optional. This is the only escape from the
+        // otherwise mandatory post-login gate; the choice is remembered so the
+        // gate stops asking, and a PIN can still be set later from NovaGram
+        // settings, which re-enables the emergency PIN.
+        TextView skip = text(15, PRIMARY_COLOR, Typeface.BOLD, Gravity.CENTER);
+        skip.setText(R.string.NovaPinContinueWithoutPin);
+        skip.setMinHeight(dp(48));
+        skip.setPadding(dp(16), dp(12), dp(16), dp(12));
+        skip.setClickable(true);
+        skip.setOnClickListener(view -> {
+            if (!busy) {
+                continueWithoutPin();
+            }
+        });
+        actionPanel.addView(skip, matchWrap(0));
+    }
+
+    private void continueWithoutPin() {
+        // Remember the decision so the gate stops prompting, then proceed into
+        // the application. NovaPinSession.isUnlocked() reads the same flag.
+        NovaPrivacySettings.global(getApplicationContext()).setAppPinDeclined(true);
+        completeGate();
     }
 
     private void showConfirmation() {
@@ -251,6 +275,8 @@ public final class NovaPinGateActivity extends Activity {
         titleView.setText(R.string.NovaPinConfirmTitle);
         descriptionView.setText(R.string.NovaPinHiddenInputHint);
         errorView.setText("");
+        // Drop the "continue without PIN" button: the user is mid-enrollment.
+        actionPanel.removeAllViews();
         renderKeypad();
     }
 
@@ -414,6 +440,13 @@ public final class NovaPinGateActivity extends Activity {
     private void addKey(String label, Runnable action) {
         TextView key = text(18, TEXT_COLOR, Typeface.BOLD, Gravity.CENTER);
         key.setText(label);
+        // Keep every key on a single line and shrink long word labels
+        // (Очистить, Продолжить) to fit their cell. Otherwise the label wraps to
+        // two lines, that key grows taller than the digit keys, and the bottom
+        // row slides out of the grid.
+        key.setMaxLines(1);
+        key.setPadding(dp(6), 0, dp(6), 0);
+        key.setAutoSizeTextTypeUniformWithConfiguration(12, 18, 1, TypedValue.COMPLEX_UNIT_SP);
         key.setClickable(true);
         key.setFocusable(false);
         key.setSoundEffectsEnabled(false);
@@ -427,7 +460,12 @@ public final class NovaPinGateActivity extends Activity {
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
         params.width = 0;
         params.height = dp(58);
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        // Fill the fixed-height cell both ways so every key aligns by its box.
+        // GridLayout aligns children by text baseline by default; a key whose
+        // label auto-shrank to fit (Очистить, Продолжить) has a shorter ascent
+        // and otherwise sits lower than the digit keys.
+        params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL);
+        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL, 1f);
         params.setMargins(dp(4), dp(4), dp(4), dp(4));
         keypad.addView(key, params);
     }
@@ -517,6 +555,8 @@ public final class NovaPinGateActivity extends Activity {
             case ENROLLED:
                 clearSecret(pendingSoftwarePin);
                 pendingSoftwarePin = null;
+                // Setting a PIN overrides an earlier "continue without PIN".
+                NovaPrivacySettings.global(getApplicationContext()).setAppPinDeclined(false);
                 completeGate();
                 break;
             case SOFTWARE_CONSENT_REQUIRED:
