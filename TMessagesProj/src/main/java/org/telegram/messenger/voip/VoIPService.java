@@ -117,6 +117,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.XiaomiUtilities;
+import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.telegram.messenger.utils.tlutils.TlUtils;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.SerializedData;
@@ -756,6 +757,10 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 	@SuppressLint({"MissingPermission", "InlinedApi"})
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId) {
+		if (!NovaCallPolicy.areCallsAllowed(this)) {
+			stopSelf(startId);
+			return START_NOT_STICKY;
+		}
 		if (sharedInstance != null) {
 			if (BuildVars.LOGS_ENABLED) {
 				FileLog.e("Tried to start the VoIP service when it's already started");

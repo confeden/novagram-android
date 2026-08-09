@@ -158,6 +158,12 @@ import org.telegram.messenger.FactCheckController;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.FlagSecureReason;
+import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
+import org.telegram.messenger.novagram.privacy.NovaAutoDeleteStore;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
+import org.telegram.messenger.novagram.privacy.NovaEraseEvidence;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.HashtagSearchController;
 import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.ImageLocation;
@@ -447,6 +453,8 @@ public class ChatActivity extends BaseFragment implements
     private RadialProgressView progressBar;
     private ActionBarMenuItem.Item addContactItem;
     private ActionBarMenuItem.Item clearHistoryItem;
+    private ActionBarMenuItem.Item novaAutoDeleteItem;
+    private ActionBarMenuItem.Item novaReadStatusItem;
     private ActionBarMenuItem.Item viewAsTopics;
     private ActionBarMenuItem.Item closeTopicItem;
     private ActionBarMenuItem.Item openForumItem;
@@ -1037,15 +1045,35 @@ public class ChatActivity extends BaseFragment implements
             if (selectedObject == null || menuDeleteItem == null) {
                 return;
             }
-            int remaining = Math.max(0, selectedObject.messageOwner.ttl_period - (getConnectionsManager().getCurrentTime() - selectedObject.messageOwner.date));
-            String remainingStr;
-            if (remaining < 24 * 60 * 60) {
-                remainingStr = AndroidUtilities.formatDuration(remaining, false, true);
+            if (selectedObject.messageOwner.ttl_period != 0) {
+                int remaining = Math.max(0, selectedObject.messageOwner.ttl_period - (getConnectionsManager().getCurrentTime() - selectedObject.messageOwner.date));
+                String remainingStr;
+                if (remaining < 24 * 60 * 60) {
+                    remainingStr = AndroidUtilities.formatDuration(remaining, false, true);
+                } else {
+                    remainingStr = LocaleController.formatPluralString("Days", Math.round(remaining / (24 * 60 * 60.0f)));
+                }
+                menuDeleteItem.setSubtext(LocaleController.formatString(R.string.AutoDeleteIn, remainingStr));
             } else {
-                remainingStr = LocaleController.formatPluralString("Days", Math.round(remaining / (24 * 60 * 60.0f)));
+                return;
             }
-            menuDeleteItem.setSubtext(LocaleController.formatString(R.string.AutoDeleteIn, remainingStr));
             AndroidUtilities.runOnUIThread(updateDeleteItemRunnable, 1000);
+        }
+    };
+    private ActionBarMenuSubItem novaCountdownItem;
+    /** Keeps the NovaGram countdown row ticking while the menu is open. */
+    private final Runnable novaUpdateCountdownRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (selectedObject == null || novaCountdownItem == null) {
+                return;
+            }
+            int remaining = novaAutoDeleteDueIn(selectedObject);
+            if (remaining <= 0) {
+                return;
+            }
+            novaCountdownItem.setSubtext(NovaAutoDelete.formatRemaining(remaining));
+            AndroidUtilities.runOnUIThread(novaUpdateCountdownRunnable, 1000);
         }
     };
 
@@ -1239,6 +1267,9 @@ public class ChatActivity extends BaseFragment implements
     public final static int OPTION_SUGGESTION_ADD_OFFER = 114;
 
     public final static int OPTION_VIEW_STATISTICS = 115;
+
+    /** NovaGram: the countdown row, informational only and never clickable. */
+    public final static int OPTION_NOVA_AUTODELETE = 200;
 
     private final static int[] allowedNotificationsDuringChatListAnimations = new int[]{
             NotificationCenter.messagesRead,
@@ -1666,6 +1697,10 @@ public class ChatActivity extends BaseFragment implements
 
     private final static int chat_menu_topic_create = 73;
 
+    private final static int nova_auto_delete_chat = 75;
+    private final static int nova_erase_evidence = 76;
+    private final static int nova_read_status = 77;
+
     private final static int id_chat_compose_panel = 1000;
 
     RecyclerListView.OnItemLongClickListenerExtended onItemLongClickListener = new RecyclerListView.OnItemLongClickListenerExtended() {
@@ -1684,7 +1719,15 @@ public class ChatActivity extends BaseFragment implements
                 showMenu = messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSetMessagesTTL || actionCell.getMessageObject().type == MessageObject.TYPE_SUGGEST_PHOTO || actionCell.getMessageObject().isWallpaperAction() || actionCell.getMessageObject().type == MessageObject.TYPE_GIFT_STARS;
             }
             if (!actionBar.isActionModeShowed() && (!isReport() || showMenu)) {
-                result = createMenu(view, false, true, x, y, true);
+                // A message waiting in the NovaGram queue opens the full menu,
+                // where its countdown row lives. Upstream skips that menu for a
+                // plain sent text (type 3 with single = false) and goes straight
+                // to selection, and then there is nowhere to show the row.
+                boolean novaQueued = false;
+                if (view instanceof ChatMessageCell) {
+                    novaQueued = novaAutoDeleteDueIn(((ChatMessageCell) view).getMessageObject()) > 0;
+                }
+                result = createMenu(view, novaQueued, true, x, y, true);
             } else {
                 boolean outside = false;
                 if (view instanceof ChatMessageCell) {
@@ -2958,6 +3001,7 @@ public class ChatActivity extends BaseFragment implements
             .add(NotificationCenter.botForumTopicDidCreate)
             .add(NotificationCenter.botForumDraftUpdate)
             .add(NotificationCenter.botForumDraftDelete)
+            .add(NotificationCenter.novaReadStatusUpdated)
             .add(NotificationCenter.joinedGroup);
 
         globalObserversGroup
@@ -3153,6 +3197,15 @@ public class ChatActivity extends BaseFragment implements
             getMessagesController().getSavedMessagesController().checkSavedDialogCount(getTopicId());
         }
 
+        if (!NovaDecoyState.isActive()) {
+            // ApplicationLoader starts the engine for accounts that existed when
+            // the process did. An account added later would otherwise never be
+            // watched, and its sent messages would never be queued.
+            NovaAutoDelete.getInstance(currentAccount).ensureStarted();
+            NovaAutoDelete.addListener(novaEraseReportListener);
+            NovaReadStatus.getInstance(currentAccount).ensureStarted();
+        }
+
         return true;
     }
 
@@ -3328,6 +3381,7 @@ public class ChatActivity extends BaseFragment implements
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        NovaAutoDelete.removeListener(novaEraseReportListener);
         if (messageMetricsView != null) {
             messageMetricsView.finish();
         }
@@ -3665,6 +3719,23 @@ public class ChatActivity extends BaseFragment implements
 
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
+            public boolean canOpenMenu() {
+                // Called right before the menu opens, which is the only moment
+                // the per-chat entries can be sure of their own state.
+                updateNovaAutoDeleteItem();
+                if (novaReadStatusItem != null) {
+                    // The written down rule, not the careful answer given while
+                    // the rules are still being read: an entry that offers to
+                    // turn off something that is not on would be a lie.
+                    novaReadStatusItem.setVisibility(
+                            NovaReadStatus.isRuleHidden(currentAccount, getDialogId())
+                                    ? View.VISIBLE
+                                    : View.GONE);
+                }
+                return true;
+            }
+
+            @Override
             public void onItemClick(final int id) {
                 if (id == -1) {
                     if (isInPollAddOptionMode()) {
@@ -3797,6 +3868,19 @@ public class ChatActivity extends BaseFragment implements
                         return;
                     }
                     showDialog(AlertsCreator.createTTLAlert(getParentActivity(), currentEncryptedChat, themeDelegate).create());
+                } else if (id == nova_auto_delete_chat) {
+                    NovaAutoDelete engine = NovaAutoDelete.getInstance(currentAccount);
+                    // The opposite of the current effect is stored explicitly,
+                    // so gaining or losing admin rights later cannot silently
+                    // reverse what was chosen here.
+                    engine.setRule(getDialogId(), engine.appliesTo(getDialogId())
+                            ? NovaAutoDeleteStore.RULE_NEVER
+                            : NovaAutoDeleteStore.RULE_ALWAYS);
+                    updateNovaAutoDeleteItem();
+                } else if (id == nova_read_status) {
+                    showNovaReadStatusDialog();
+                } else if (id == nova_erase_evidence) {
+                    showNovaEraseEvidenceDialog();
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -4064,6 +4148,7 @@ public class ChatActivity extends BaseFragment implements
                         setSubmenu(null);
                         scrimPopupWindow = null;
                         menuDeleteItem = null;
+                        novaCountdownItem = null;
                         scrimPopupWindowItems = null;
                         chatLayoutManager.setCanScrollVertically(true);
                         if (scrimPopupWindowHideDimOnDismiss) {
@@ -4405,6 +4490,24 @@ public class ChatActivity extends BaseFragment implements
             if (!isTopic && !ChatObject.isMonoForum(currentChat)) {
                 clearHistoryItem = headerItem.lazilyAddSubItem(clear_history, R.drawable.msg_clear,
                     LocaleController.getString(UserObject.isBotForum(currentUser) ? R.string.ClearAllHistory : R.string.ClearHistory));
+            }
+            // Hidden in the decoy: these two are the only chat menu entries that
+            // no Telegram build has, and the menu is where anyone looking for
+            // traces of another client would look first.
+            if (!isTopic && !ChatObject.isMonoForum(currentChat)
+                    && currentEncryptedChat == null
+                    && !NovaDecoyState.isActive()) {
+                if (!UserObject.isUserSelf(currentUser)) {
+                    novaAutoDeleteItem = headerItem.lazilyAddSubItem(nova_auto_delete_chat, R.drawable.msg_clear, "");
+                }
+                // Shown only where read receipts are actually being withheld,
+                // which is also where the explanation has something to explain.
+                if (currentUser != null && !UserObject.isUserSelf(currentUser)) {
+                    novaReadStatusItem = headerItem.lazilyAddSubItem(nova_read_status, R.drawable.msg_markread,
+                            LocaleController.getString(R.string.NovaReadStatusTitle));
+                }
+                headerItem.lazilyAddSubItem(nova_erase_evidence, R.drawable.msg_delete,
+                        LocaleController.getString(R.string.NovaEraseEvidence));
             }
             boolean addedSettings = false;
             if (!isTopic) {
@@ -8622,7 +8725,13 @@ public class ChatActivity extends BaseFragment implements
 
         flagSecure = new FlagSecureReason(getParentActivity().getWindow(), () ->
             currentEncryptedChat != null ||
-            isPeerNoForwards()
+            isPeerNoForwards() ||
+            NovaScreenshotPolicy.shouldSecureChat(
+                    getParentActivity(),
+                    currentChat,
+                    currentUser,
+                    currentEncryptedChat
+            )
         );
 
         if (oldMessage != null) {
@@ -12695,6 +12804,236 @@ public class ChatActivity extends BaseFragment implements
     public long getDialogId() {
         return dialog_id;
     }
+
+    /** Seconds until NovaGram destroys this own message, 0 when it is not queued. */
+    private int novaAutoDeleteDueIn(MessageObject messageObject) {
+        if (messageObject == null || messageObject.getId() <= 0 || !messageObject.isOut()) {
+            return 0;
+        }
+        try {
+            return NovaAutoDelete.getInstance(currentAccount)
+                    .dueIn(messageObject.getDialogId(), messageObject.getId());
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private void updateNovaAutoDeleteItem() {
+        if (novaAutoDeleteItem == null) {
+            return;
+        }
+        boolean enabled = NovaAutoDelete.isEnabled(currentAccount);
+        novaAutoDeleteItem.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        if (!enabled) {
+            return;
+        }
+        boolean applies = NovaAutoDelete.getInstance(currentAccount).appliesTo(getDialogId());
+        novaAutoDeleteItem.setText(LocaleController.getString(applies
+                ? R.string.NovaAutoDeleteChatOff
+                : R.string.NovaAutoDeleteChatOn));
+        novaAutoDeleteItem.setIcon(applies ? R.drawable.msg_cancel : R.drawable.msg_clear);
+    }
+
+    private FrameLayout novaReadStatusPanel;
+    private TextView novaReadStatusPanelName;
+    private TextView novaReadStatusPanelText;
+
+    /**
+     * A pinned note at the top of the chat saying that read receipts are being
+     * withheld here. It is local: nothing about it reaches the server, so the
+     * other side never learns that the chat is treated specially. Without it
+     * the feature is invisible — the user would have no way of knowing which
+     * chats are silent, and the promise "you can turn it off" would point at a
+     * menu entry nobody knows to look for.
+     */
+    private void updateNovaReadStatusPanel() {
+        boolean show;
+        try {
+            // The written down rule, not the careful answer given while the
+            // rules are still being read: the note tells the user that receipts
+            // are being withheld here, and it may only say so once that is
+            // decided. It is answered for again on novaReadStatusUpdated.
+            show = !NovaDecoyState.isActive()
+                    && currentUser != null
+                    && !UserObject.isUserSelf(currentUser)
+                    && NovaReadStatus.isRuleHidden(currentAccount, getDialogId());
+        } catch (Throwable ignored) {
+            show = false;
+        }
+        if (!show) {
+            if (novaReadStatusPanel != null && topPanelLayout != null) {
+                topPanelLayout.setViewVisible(novaReadStatusPanel, false);
+            }
+            return;
+        }
+        if (novaReadStatusPanel == null && topPanelLayout != null && getContext() != null) {
+            novaReadStatusPanel = new FrameLayout(getContext());
+            topPanelLayout.addView(novaReadStatusPanel, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
+            topPanelLayout.setPriority(novaReadStatusPanel, 9);
+            topPanelLayout.setDebugName(novaReadStatusPanel, "nova read status");
+            novaReadStatusPanel.setOnClickListener(v -> showNovaReadStatusDialog());
+
+            novaReadStatusPanelName = new TextView(getContext());
+            novaReadStatusPanelName.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+            novaReadStatusPanelName.setTextColor(getThemedColor(Theme.key_chat_topPanelTitle));
+            novaReadStatusPanelName.setTypeface(AndroidUtilities.bold());
+            novaReadStatusPanelName.setSingleLine(true);
+            novaReadStatusPanelName.setEllipsize(TextUtils.TruncateAt.END);
+            novaReadStatusPanel.addView(novaReadStatusPanelName, LayoutHelper.createFrame(
+                    LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.LEFT, 8, 5, 8, 0));
+
+            novaReadStatusPanelText = new TextView(getContext());
+            novaReadStatusPanelText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+            novaReadStatusPanelText.setTextColor(getThemedColor(Theme.key_chat_topPanelMessage));
+            novaReadStatusPanelText.setSingleLine(true);
+            novaReadStatusPanelText.setEllipsize(TextUtils.TruncateAt.END);
+            novaReadStatusPanel.addView(novaReadStatusPanelText, LayoutHelper.createFrame(
+                    LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.LEFT, 8, 23, 8, 0));
+        }
+        if (novaReadStatusPanel == null || topPanelLayout == null) {
+            return;
+        }
+        novaReadStatusPanelName.setText(LocaleController.getString(R.string.NovaReadStatusPanelTitle));
+        novaReadStatusPanelText.setText(LocaleController.getString(R.string.NovaReadStatusPanelText));
+        topPanelLayout.setViewVisible(novaReadStatusPanel, true);
+    }
+
+    private void showNovaReadStatusDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.NovaReadStatusTitle));
+        builder.setMessage(LocaleController.getString(R.string.NovaReadStatusHiddenAbout)
+                + "\n\n"
+                + LocaleController.getString(R.string.NovaReadStatusIrreversible));
+        builder.setPositiveButton(
+                LocaleController.getString(R.string.NovaReadStatusTurnOff),
+                (dialog, which) -> {
+                    NovaReadStatus.getInstance(currentAccount).reveal(getDialogId());
+                    if (novaReadStatusItem != null) {
+                        novaReadStatusItem.setVisibility(View.GONE);
+                    }
+                    updateNovaReadStatusPanel();
+                });
+        builder.setNegativeButton(LocaleController.getString(R.string.Close), null);
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
+        }
+    }
+
+    private void showNovaEraseEvidenceDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        CharSequence[] periods = {
+                LocaleController.getString(R.string.NovaEraseEvidenceDay),
+                LocaleController.getString(R.string.NovaEraseEvidenceWeek),
+                LocaleController.getString(R.string.NovaEraseEvidenceMonth),
+                LocaleController.getString(R.string.NovaEraseEvidenceAll)
+        };
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
+        builder.setItems(periods, (dialog, which) -> confirmNovaEraseEvidence(which, periods[which]));
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
+    private void confirmNovaEraseEvidence(int period, CharSequence periodName) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        String message = LocaleController.getString(R.string.NovaEraseEvidenceAbout)
+                + "\n\n"
+                + LocaleController.getString(R.string.NovaEraseEvidenceReactions)
+                + "\n\n"
+                + LocaleController.formatString(
+                        "NovaEraseEvidenceConfirm",
+                        R.string.NovaEraseEvidenceConfirm,
+                        periodName.toString().toLowerCase());
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
+        builder.setMessage(message);
+        builder.setPositiveButton(
+                LocaleController.getString(R.string.NovaEraseEvidenceDestroy),
+                (dialog, which) -> runNovaEraseEvidence(period));
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
+        }
+    }
+
+    private final NovaAutoDelete.Listener novaEraseReportListener = dialogId -> {
+        if (dialogId == getDialogId()) {
+            showNovaEraseReport();
+        }
+    };
+
+    /**
+     * Shows the result of an Erase evidence run once the queue has actually
+     * finished it. The run outlives the screen that started it, so the report
+     * waits here until the chat is opened again rather than being lost.
+     */
+    private void showNovaEraseReport() {
+        if (getParentActivity() == null || fragmentView == null || NovaDecoyState.isActive()) {
+            return;
+        }
+        NovaAutoDelete engine = NovaAutoDelete.getInstance(currentAccount);
+        NovaAutoDeleteStore.Report report = engine.getReport(getDialogId());
+        if (report == null || !report.finished || report.shown) {
+            return;
+        }
+        engine.markReportShown(getDialogId());
+        BulletinFactory.of(ChatActivity.this).createSimpleBulletin(
+                R.raw.chats_infotip,
+                LocaleController.getString(R.string.NovaEraseEvidence),
+                LocaleController.formatString(
+                        "NovaEraseEvidenceReport",
+                        R.string.NovaEraseEvidenceReport,
+                        report.deleted,
+                        report.replaced,
+                        report.skipped)).show();
+    }
+
+    private void runNovaEraseEvidence(int period) {
+        long dialogId = getDialogId();
+        BulletinFactory.of(this).createSimpleBulletin(
+                R.raw.chats_infotip,
+                LocaleController.getString(R.string.NovaEraseEvidenceCollecting)).show();
+        NovaEraseEvidence.run(currentAccount, dialogId, period, (queued, reactions, complete) -> {
+            if (getParentActivity() == null || fragmentView == null) {
+                return;
+            }
+            CharSequence text;
+            if (!complete) {
+                // The walk stopped early, so part of the period was never seen.
+                // Reporting the same success as a full pass would be a lie
+                // exactly where the user needs the truth.
+                text = LocaleController.formatString(
+                        "NovaEraseEvidencePartial",
+                        R.string.NovaEraseEvidencePartial,
+                        queued);
+            } else if (queued > 0) {
+                text = LocaleController.formatString(
+                        "NovaEraseEvidenceQueued",
+                        R.string.NovaEraseEvidenceQueued,
+                        queued);
+            } else {
+                text = LocaleController.getString(R.string.NovaEraseEvidenceNothing);
+            }
+            BulletinFactory.of(ChatActivity.this)
+                    .createSimpleBulletin(R.raw.chats_infotip, text).show();
+        });
+    }
+
     public int getDialogFolderId() {
         return dialogFolderId;
     }
@@ -23447,6 +23786,17 @@ public class ChatActivity extends BaseFragment implements
                     }
                 }
             }
+        } else if (id == NotificationCenter.novaReadStatusUpdated) {
+            // The rules are read from the sealed storage and decided long after
+            // a chat is opened, so the note above the messages is answered for
+            // again instead of staying as it was when the chat was entered.
+            updateNovaReadStatusPanel();
+            if (novaReadStatusItem != null) {
+                novaReadStatusItem.setVisibility(
+                        NovaReadStatus.isRuleHidden(currentAccount, getDialogId())
+                                ? View.VISIBLE
+                                : View.GONE);
+            }
         } else if (id == NotificationCenter.messagesReadContent) {
             long did = (Long) args[0];
             if (did != dialog_id && (ChatObject.isChannel(currentChat) || did != 0)) {
@@ -29584,6 +29934,10 @@ public class ChatActivity extends BaseFragment implements
         super.onResume();
         checkShowBlur(false);
         activityResumeTime = System.currentTimeMillis();
+        // An Erase evidence run that finished while this chat was closed left a
+        // report waiting; the bulletin needs a visible screen to appear on.
+        showNovaEraseReport();
+        updateNovaReadStatusPanel();
         if (openImport && getSendMessagesHelper().getImportingHistory(dialog_id) != null) {
             ImportingAlert alert = new ImportingAlert(getParentActivity(), null, this, themeDelegate);
             alert.setOnHideListener(dialog -> {
@@ -30815,6 +31169,7 @@ public class ChatActivity extends BaseFragment implements
             if (scrimPopupWindow != null) {
                 closeMenu();
                 menuDeleteItem = null;
+                novaCountdownItem = null;
                 scrimPopupWindowItems = null;
                 return false;
             }
@@ -31626,6 +31981,19 @@ public class ChatActivity extends BaseFragment implements
                     cell.setMinimumWidth(AndroidUtilities.dp(200));
                     cell.setTextAndIcon(items.get(a), icons.get(a));
                     Integer option = options.get(a);
+                    if (option == OPTION_NOVA_AUTODELETE) {
+                        novaCountdownItem = cell;
+                        // Informational only: swallowing the tap keeps the menu
+                        // open instead of closing it for nothing.
+                        cell.setOnClickListener(null);
+                        cell.setClickable(false);
+                        cell.setEnabled(false);
+                        cell.setSubtextColor(getThemedColor(Theme.key_windowBackgroundWhiteGrayText6));
+                        novaUpdateCountdownRunnable.run();
+                        scrimPopupWindowItems[a] = cell;
+                        popupLayout.addView(cell);
+                        continue;
+                    }
                     if (option == OPTION_DELETE && selectedObject != null) {
                         if (selectedObject.messageOwner.ttl_period != 0) {
                             menuDeleteItem = cell;
@@ -32120,6 +32488,7 @@ public class ChatActivity extends BaseFragment implements
                     }
                     scrimPopupWindow = null;
                     menuDeleteItem = null;
+                    novaCountdownItem = null;
                     scrimPopupWindowItems = null;
                     chatLayoutManager.setCanScrollVertically(true);
                     if (scrimPopupWindowHideDimOnDismiss) {
@@ -40100,6 +40469,7 @@ public class ChatActivity extends BaseFragment implements
                     }
                     scrimPopupWindow = null;
                     menuDeleteItem = null;
+                    novaCountdownItem = null;
                     scrimPopupWindowItems = null;
                     chatLayoutManager.setCanScrollVertically(true);
                     if (scrimPopupWindowHideDimOnDismiss) {
@@ -45082,6 +45452,7 @@ public class ChatActivity extends BaseFragment implements
                     }
                     scrimPopupWindow = null;
                     menuDeleteItem = null;
+                    novaCountdownItem = null;
                     scrimPopupWindowItems = null;
                     chatLayoutManager.setCanScrollVertically(true);
                     if (scrimPopupWindowHideDimOnDismiss) {
@@ -45925,6 +46296,20 @@ public class ChatActivity extends BaseFragment implements
                 icons.add(deleteIconRes);
             }
         }
+
+        // NovaGram's own countdown, added last so it reads as a footnote to the
+        // actions above. It is a separate row rather than a subtitle under
+        // Delete, because a chat can also have Telegram's own auto-delete timer,
+        // and that subtitle is already taken by it: the two are different
+        // promises and both have to be visible.
+        if (novaAutoDeleteDueIn(message) > 0) {
+            // The time itself goes into the subtitle: a single line with both
+            // the label and "6 d 23 h 2 m" does not fit the menu width and ends
+            // up truncated, exactly as Telegram's own auto-delete row does.
+            items.add(LocaleController.getString(R.string.NovaAutoDeleteCountdownTitle));
+            options.add(OPTION_NOVA_AUTODELETE);
+            icons.add(R.drawable.msg_autodelete);
+        }
     }
 
     private void updateBotforumTabsBottomMargin() {
@@ -46499,6 +46884,7 @@ public class ChatActivity extends BaseFragment implements
         scrimPopupWindow.setOnDismissListener(() -> {
             scrimPopupWindow = null;
             menuDeleteItem = null;
+            novaCountdownItem = null;
             scrimPopupWindowItems = null;
             chatLayoutManager.setCanScrollVertically(true);
             dimBehindView(false);

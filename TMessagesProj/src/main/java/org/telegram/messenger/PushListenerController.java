@@ -18,6 +18,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.voip.VoIPGroupNotification;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.NativeByteBuffer;
@@ -47,6 +48,9 @@ public class PushListenerController {
     private static CountDownLatch countDownLatch = new CountDownLatch(1);
 
     public static void sendRegistrationToServer(@PushType int pushType, String token) {
+        if (!NovaPinSession.isUnlocked()) {
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             ConnectionsManager.setRegId(token, pushType, SharedConfig.pushStringStatus);
             if (token == null) {
@@ -94,6 +98,9 @@ public class PushListenerController {
     }
 
     public static void processRemoteMessage(@PushType int pushType, String data, long time) {
+        if (!NovaPinSession.isUnlocked()) {
+            return;
+        }
         String tag = pushType == PUSH_TYPE_FIREBASE ? "FCM" : "HCM";
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d(tag + " PRE START PROCESSING");

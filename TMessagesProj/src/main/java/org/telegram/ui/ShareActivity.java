@@ -26,6 +26,7 @@ import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.ShareAlert;
@@ -36,6 +37,11 @@ public class ShareActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if (!NovaPinSession.isUnlocked()) {
+            super.onCreate(savedInstanceState);
+            NovaPinSession.guardAfterSuper(this);
+            return;
+        }
         ApplicationLoader.postInitApplication();
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         AndroidUtilities.setPreferredMaxRefreshRate(getWindow());

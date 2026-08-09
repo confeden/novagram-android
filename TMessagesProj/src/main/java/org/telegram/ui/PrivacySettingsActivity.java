@@ -14,6 +14,7 @@ import static org.telegram.messenger.LocaleController.getString;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
@@ -39,6 +40,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.FileLog;
@@ -124,6 +126,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
     private int sessionsRow;
     @Keep
     private int passcodeRow;
+    private int novaEmergencyPinRow;
     @Keep
     private int autoDeleteMesages;
     @Keep
@@ -494,6 +497,10 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                 } else {
                     PasskeysActivity.showLearnSheet(context, currentAccount, resourceProvider, true);
                 }
+            } else if (position == novaEmergencyPinRow) {
+                Intent novaIntent = new Intent(context, NovaPinGateActivity.class);
+                novaIntent.putExtra(NovaPinGateActivity.EXTRA_SETUP_EMERGENCY, true);
+                context.startActivity(novaIntent);
             } else if (position == passcodeRow) {
                 presentFragment(PasscodeActivity.determineOpenFragment());
             } else if (position == secretWebpageRow) {
@@ -707,12 +714,17 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
 
     public void updateRows(boolean notify) {
         passkeysRow = -1;
+        novaEmergencyPinRow = -1;
         rowCount = 0;
 
         securitySectionRow = rowCount++;
         passwordRow = rowCount++;
         autoDeleteMesages = rowCount++;
         passcodeRow = rowCount++;
+        // The emergency PIN moved to the dedicated NovaGram settings section, so
+        // it no longer appears in this stock Telegram screen. The row id stays
+        // declared (and unmatched at -1) to keep the rest of the adapter intact.
+        novaEmergencyPinRow = -1;
         if (getMessagesController().config.settingsDisplayPasskeys.get() && Build.VERSION.SDK_INT >= 28 && BuildVars.SUPPORTS_PASSKEYS) {
             passkeysRow = rowCount++;
         }
@@ -1020,7 +1032,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == passcodeRow || position == passwordRow || position == passkeysRow || position == blockedRow || position == sessionsRow || position == secretWebpageRow || position == webSessionsRow ||
+            return position == novaEmergencyPinRow || position == passcodeRow || position == passwordRow || position == passkeysRow || position == blockedRow || position == sessionsRow || position == secretWebpageRow || position == webSessionsRow ||
                     position == groupsRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_INVITE) ||
                     position == lastSeenRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_LASTSEEN) ||
                     position == callsRow && !getContactsController().getLoadingPrivacyInfo(ContactsController.PRIVACY_RULES_TYPE_CALLS) ||
@@ -1360,6 +1372,13 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                             value = getString(R.string.PasswordOff);
                         }
                         textCell2.setTextAndValueAndIcon(getString(R.string.Passkey), value, true, R.drawable.msg2_permissions, true);
+                    } else if (position == novaEmergencyPinRow) {
+                        textCell2.setTextAndValueAndIcon(
+                                getString(R.string.NovaEmergencySettingsTitle),
+                                "",
+                                true,
+                                R.drawable.msg2_secret,
+                                true);
                     } else if (position == passcodeRow) {
                         int icon;
                         if (SharedConfig.passcodeHash.length() != 0) {
@@ -1401,7 +1420,7 @@ public class PrivacySettingsActivity extends BaseFragment implements Notificatio
                 return 3;
             } else if (position == botsAndWebsitesShadowRow) {
                 return 4;
-            } else if (position == autoDeleteMesages || position == sessionsRow || position == emailLoginRow || position == passwordRow || position == passkeysRow || position == passcodeRow || position == blockedRow) {
+            } else if (position == autoDeleteMesages || position == sessionsRow || position == emailLoginRow || position == passwordRow || position == passkeysRow || position == passcodeRow || position == blockedRow || position == novaEmergencyPinRow) {
                 return 5;
             }
             return 0;

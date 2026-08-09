@@ -34,6 +34,7 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.XiaomiUtilities;
+import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_phone;
@@ -382,6 +383,10 @@ public class VoIPPreNotificationService { // } extends Service implements AudioM
 //    public static Intent pendingNotificationService;
 
     public static void show(Context context, Intent intent, TL_phone.PhoneCall call) {
+        if (!NovaCallPolicy.areCallsAllowed(context)) {
+            dismiss(context, false);
+            return;
+        }
         FileLog.d("VoIPPreNotification.show()");
 
         if (call == null || intent == null) {

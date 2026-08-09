@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Содержимое заглушки, показываемой после аварийного PIN.
+
+  Переписки намеренно скучные: поручения, смены, посылка, сломанная стиральная
+  машина. Заглушка с интересным содержимым вызывает ровно тот вопрос, ради
+  избегания которого она существует. Ничто здесь не называет NovaGram,
+  безопасность, приватность и вообще ничего, что читатель распознал бы как
+  постановку.
+
+  Элементы сообщений имеют вид «говорящий|текст». Говорящий 0 — владелец
+  аккаунта, 1 и далее — остальные участники этой переписки по порядку.
+-->
+<resources>
+    <string name="NovaDecoySelfFirstName">Алексей</string>
+    <string name="NovaDecoySelfLastName"></string>
+    <!-- Используется, только если реальный номер не удалось перехватить. -->
+    <string name="NovaDecoyPhonePrefix">79</string>
+
+    <string-array name="NovaDecoyContacts">
+        <item>Марина|Ковалёва</item>
+        <item>Илья|</item>
+        <item>Мама|</item>
+        <item>Папа|</item>
+        <item>Сергей|мастер</item>
+        <item>Ольга|соседка</item>
+        <item>Виктор|сосед</item>
+        <item>Катя|Мельникова</item>
+        <item>Дмитрий|Орлов</item>
+        <item>Лена|</item>
+    </string-array>
+
+    <string-array name="NovaDecoyNeighbours">
+        <item>Анна|Соколова</item>
+        <item>Борис|</item>
+        <item>Галина|</item>
+        <item>Игорь|Панов</item>
+        <item>Нина|</item>
+        <item>Павел|</item>
+        <item>Раиса|</item>
+        <item>Роман|</item>
+        <item>София|</item>
+        <item>Тамара|</item>
+        <item>Вадим|</item>
+        <item>Вера|Титова</item>
+        <item>Юрий|</item>
+        <item>Зоя|</item>
+        <item>Максим|</item>
+    </string-array>
+
+    <string name="NovaDecoyGroupFamily">Семья</string>
+    <string name="NovaDecoyGroupBuilding">Дом 14, подъезд 2</string>
+    <string name="NovaDecoyChannelDeals">Скидки рядом</string>
+    <string name="NovaDecoyServiceDelivery">Доставка</string>
+
+    <string name="NovaDecoyAboutRepairs">Стиральные машины и холодильники. Выезд по городу.</string>
+    <string name="NovaDecoyAboutDelivery">Уведомления о заказах и доставке.</string>
+    <string name="NovaDecoyAboutContact">тут редко</string>
+    <string name="NovaDecoyAboutBuilding">Объявления по подъезду. Реклама удаляется.</string>
+    <string name="NovaDecoyAboutDeals">Скидки и акции рядом. Без спама.</string>
+
+    <string-array name="NovaDecoySavedMessages">
+        <item>0|Wi-Fi гостевой: 8462 0194</item>
+        <item>0|молоко, хлеб, кофе, батарейки</item>
+        <item>0|передать показания счётчика до 25-го</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatColleague">
+        <item>1|завтра будешь в офисе?</item>
+        <item>0|да, с утра</item>
+        <item>1|хорошо, отчёт лежит на общем диске</item>
+        <item>0|принял, посмотрю до совещания</item>
+        <item>1|совещание перенесли на 11</item>
+        <item>0|ок</item>
+        <item>1|и Павел просил цифры за прошлый месяц</item>
+        <item>0|сегодня отправлю</item>
+        <item>1|спасибо</item>
+        <item>0|не за что</item>
+        <item>1|до завтра</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatFamily">
+        <item>1|кто заберёт посылку?</item>
+        <item>0|я смогу, после работы</item>
+        <item>2|хлеб не забудь</item>
+        <item>0|хорошо</item>
+        <item>1|ужин в семь</item>
+        <item>2|я задержусь, начинайте без меня</item>
+        <item>0|ладно</item>
+        <item>1|суп в холодильнике</item>
+        <item>0|спасибо</item>
+        <item>2|машина в сервисе до пятницы</item>
+        <item>1|значит на автобусе</item>
+        <item>0|разберусь</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatFriend">
+        <item>1|сегодня в зал?</item>
+        <item>0|не могу, работаю допоздна</item>
+        <item>1|тогда завтра</item>
+        <item>0|завтра нормально</item>
+        <item>1|в то же время</item>
+        <item>0|да</item>
+        <item>1|мяч возьми, клубный спущен</item>
+        <item>0|ок</item>
+        <item>1|давай</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatDelivery">
+        <item>1|Заказ отправлен. Ожидаемая доставка в четверг.</item>
+        <item>1|Ваша посылка прибыла в пункт выдачи. Код 4471.</item>
+        <item>1|Пункт выдачи работает до 21:00.</item>
+        <item>1|Посылка выдана. Спасибо за заказ.</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatBuilding">
+        <item>1|во вторник отключат горячую воду с 9 до 18</item>
+        <item>2|опять?</item>
+        <item>1|так в объявлении написано</item>
+        <item>0|спасибо, что предупредили</item>
+        <item>2|снова кто-то встал на два места</item>
+        <item>1|серая?</item>
+        <item>2|да</item>
+        <item>0|скажу управляющему</item>
+        <item>1|лифт починили</item>
+        <item>2|наконец-то</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChatRepairs">
+        <item>1|Добрый день. Могу приехать в субботу утром.</item>
+        <item>0|суббота утром подходит</item>
+        <item>1|С 10 до 12, устроит?</item>
+        <item>0|да</item>
+        <item>1|Машинка та же?</item>
+        <item>0|да, перестала сливать</item>
+        <item>1|Понял, привезу помпу.</item>
+        <item>0|спасибо</item>
+    </string-array>
+
+    <string-array name="NovaDecoyChannelPosts">
+        <item>1|Кофе в зёрнах 1 кг, минус 30 процентов до воскресенья.</item>
+        <item>1|Зимние шины, второй комплект за полцены.</item>
+        <item>1|Новая пекарня на углу, чай бесплатно до 10.</item>
+        <item>1|Бытовая химия, три по цене двух.</item>
+        <item>1|Доставка продуктов на этой неделе бесплатно от 2000.</item>
+    </string-array>
+</resources>

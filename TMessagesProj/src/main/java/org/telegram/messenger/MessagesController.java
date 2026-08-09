@@ -70,6 +70,8 @@ import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLMethod;
 import org.telegram.tgnet.TLObject;
+import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.Vector;
 import org.telegram.tgnet.tl.TL_account;
@@ -341,6 +343,14 @@ public class MessagesController extends BaseController implements NotificationCe
     private LongSparseArray<ReadTask> readTasksMap = new LongSparseArray<>();
     private ArrayList<ReadTask> repliesReadTasks = new ArrayList<>();
     private HashMap<String, ReadTask> threadsReadTasksMap = new HashMap<>();
+
+    // NovaGram: reads that were not sent because it was not known yet whether
+    // the dialog withholds read receipts. Their local half has already run, so
+    // nothing would ever offer them again; they are kept here until the dialog
+    // is decided and then either sent (novaSendHeldReads) or dropped
+    // (novaForgetHeldReads).
+    private final ConcurrentHashMap<Long, Integer> novaHeldDialogReads = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, ArrayList<Integer>> novaHeldContentReads = new ConcurrentHashMap<>();
 
     private boolean gettingNewDeleteTask;
     private int currentDeletingTaskTime;
@@ -6609,6 +6619,8 @@ public class MessagesController extends BaseController implements NotificationCe
         suggestedFilters.clear();
         dialogFiltersLoaded = false;
         ignoreSetOnline = false;
+        novaHeldDialogReads.clear();
+        novaHeldContentReads.clear();
 
         Utilities.stageQueue.postRunnable(() -> {
             readTasks.clear();
@@ -12549,7 +12561,10 @@ public class MessagesController extends BaseController implements NotificationCe
                         SharedPreferences.Editor editor = notificationsPreferences.edit();
                         if (type == 0) {
                             if ((notify_settings.flags & 1) != 0) {
-                                editor.putBoolean("EnablePreviewGroup", notify_settings.show_previews);
+                                // NovaGram: the echo may be this client's own
+                                // "no previews" coming back, and storing it
+                                // would turn the text off on this screen too.
+                                NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewGroup", notify_settings.show_previews);
                             }
                             if ((notify_settings.flags & 2) != 0) {
                             /*if (notify_settings.silent) {
@@ -12563,7 +12578,8 @@ public class MessagesController extends BaseController implements NotificationCe
                             }
                         } else if (type == 1) {
                             if ((notify_settings.flags & 1) != 0) {
-                                editor.putBoolean("EnablePreviewAll", notify_settings.show_previews);
+                                // NovaGram: see putServerPreview above.
+                                NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewAll", notify_settings.show_previews);
                             }
                             if ((notify_settings.flags & 64) != 0) {
                                 editor.putBoolean("EnableAllStories", !notify_settings.stories_muted);
@@ -12586,7 +12602,8 @@ public class MessagesController extends BaseController implements NotificationCe
                             }
                         } else {
                             if ((notify_settings.flags & 1) != 0) {
-                                editor.putBoolean("EnablePreviewChannel", notify_settings.show_previews);
+                                // NovaGram: see putServerPreview above.
+                                NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewChannel", notify_settings.show_previews);
                             }
                             if ((notify_settings.flags & 2) != 0) {
                             /*if (notify_settings.silent) {
@@ -12622,7 +12639,8 @@ public class MessagesController extends BaseController implements NotificationCe
                     if (notify_settings.stories_notify_from != null) {
                         editor.putBoolean("EnableReactionsStoriesContacts", notify_settings.stories_notify_from instanceof TL_account.TL_reactionNotificationsFromContacts);
                     }
-                    editor.putBoolean("EnableReactionsPreview", notify_settings.show_previews);
+                    // NovaGram: see putServerPreview above.
+                    NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnableReactionsPreview", notify_settings.show_previews);
                     getNotificationsController().getNotificationsSettingsFacade().applySoundSettings(notify_settings.sound, editor, 0, 0, TYPE_REACTIONS_MESSAGES, false);
                     editor.apply();
                 }
@@ -12650,7 +12668,8 @@ public class MessagesController extends BaseController implements NotificationCe
                 if (notify_settings.stories_notify_from != null) {
                     editor.putBoolean("EnableReactionsStoriesContacts", notify_settings.stories_notify_from instanceof TL_account.TL_reactionNotificationsFromContacts);
                 }
-                editor.putBoolean("EnableReactionsPreview", notify_settings.show_previews);
+                // NovaGram: see putServerPreview above.
+                NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnableReactionsPreview", notify_settings.show_previews);
                 getNotificationsController().getNotificationsSettingsFacade().applySoundSettings(notify_settings.sound, editor, 0, 0, TYPE_REACTIONS_MESSAGES, false);
                 editor.apply();
 
@@ -14359,7 +14378,23 @@ public class MessagesController extends BaseController implements NotificationCe
                 getConnectionsManager().sendRequest(req, (response, error) -> {
 
                 });
-            } else {
+            } else if (NovaReadStatus.isUndecided(currentAccount, dialogId)) {
+                // NovaGram: whether this dialog withholds receipts is not known
+                // yet. Dropping the request would lose it for good — the local
+                // half above has already run, so this message is never offered
+                // again — so it waits for the answer instead.
+                ArrayList<Integer> held = novaHeldContentReads.get(dialogId);
+                if (held == null) {
+                    held = new ArrayList<>();
+                    novaHeldContentReads.put(dialogId, held);
+                }
+                held.add(messageObject.getId());
+            } else if (!NovaReadStatus.isHidden(currentAccount, dialogId)) {
+                // NovaGram: in a dialog where receipts are withheld only the
+                // local half above runs. readMessageContents is the half the
+                // other side sees: it takes the "not listened yet" dot away and
+                // starts the countdown of a self destructing photo, which is
+                // exactly what this dialog was promised would not happen.
                 TLRPC.TL_messages_readMessageContents req = new TLRPC.TL_messages_readMessageContents();
                 req.id.add(messageObject.getId());
                 getConnectionsManager().sendRequest(req, (response, error) -> {
@@ -14374,6 +14409,11 @@ public class MessagesController extends BaseController implements NotificationCe
 
     public void markMentionMessageAsRead(int mid, long channelId, long did) {
         getMessagesStorage().markMentionMessageAsRead(-channelId, mid, did);
+        if (NovaReadStatus.isHidden(currentAccount, did)) {
+            // NovaGram: marked read locally just above, silent towards the
+            // server, for the same reason as in markMessageContentAsRead.
+            return;
+        }
         if (channelId != 0) {
             TLRPC.TL_channels_readMessageContents req = new TLRPC.TL_channels_readMessageContents();
             req.channel = getInputChannel(channelId);
@@ -14453,6 +14493,17 @@ public class MessagesController extends BaseController implements NotificationCe
         if (createDeleteTask) {
             getMessagesStorage().createTaskForMid(dialogId, mid, time, time, ttl, false);
         }
+        if (NovaReadStatus.isHidden(currentAccount, dialogId)) {
+            // NovaGram: the local half — the self destruction timer of this
+            // client — has been set up above. readMessageContents is the half
+            // the other side sees, so it is not sent in a dialog where receipts
+            // are withheld. The pending task goes with it: kept, it would be
+            // sent again at every start.
+            if (newTaskId != 0) {
+                getMessagesStorage().removePendingTask(newTaskId);
+            }
+            return;
+        }
         if (inputChannel != null) {
             TLRPC.TL_channels_readMessageContents req = new TLRPC.TL_channels_readMessageContents();
             req.channel = inputChannel;
@@ -14495,6 +14546,118 @@ public class MessagesController extends BaseController implements NotificationCe
             int time = getConnectionsManager().getCurrentTime();
             getMessagesStorage().createTaskForSecretChat(chat.id, time, time, 0, randomIds);
         }
+    }
+
+    /**
+     * NovaGram: sends the reads that were held back while it was not known
+     * whether this dialog withholds receipts, now that it turned out to be one
+     * the user started. Does nothing when nothing was held. Main thread.
+     */
+    public void novaSendHeldReads(long dialogId) {
+        ArrayList<Integer> contents = novaHeldContentReads.remove(dialogId);
+        if (contents != null && !contents.isEmpty() && !DialogObject.isEncryptedDialog(dialogId)) {
+            TLRPC.TL_messages_readMessageContents req = new TLRPC.TL_messages_readMessageContents();
+            req.id.addAll(contents);
+            getConnectionsManager().sendRequest(req, (response, error) -> {
+                if (error == null && response instanceof TLRPC.TL_messages_affectedMessages) {
+                    TLRPC.TL_messages_affectedMessages res = (TLRPC.TL_messages_affectedMessages) response;
+                    processNewDifferenceParams(-1, res.pts, -1, res.pts_count);
+                }
+            });
+        }
+        Integer heldMaxId = novaHeldDialogReads.remove(dialogId);
+        if (heldMaxId == null || heldMaxId <= 0 || DialogObject.isEncryptedDialog(dialogId)) {
+            return;
+        }
+        novaEnqueueRead(dialogId, heldMaxId);
+    }
+
+    /**
+     * NovaGram: the rule that withheld the receipts is gone, so the receipt for
+     * the position this client is already at has to reach the server now.
+     * Nothing else would ask for it: {@code dialogs_read_inbox_max} was advanced
+     * even while the rule held — that line sits above the gate in
+     * {@link #markDialogAsRead} — so the dialog looks read here and the ordinary
+     * read path has nothing left to report.
+     *
+     * <p>Kept apart from {@link #novaSendHeldReads} on purpose: that one is also
+     * called for dialogs where nothing was ever withheld, and an extra
+     * readHistory there would buy nothing.</p>
+     */
+    public void novaSendReadAfterReveal(long dialogId) {
+        novaSendHeldReads(dialogId);
+        if (DialogObject.isEncryptedDialog(dialogId) || !DialogObject.isUserDialog(dialogId)) {
+            return;
+        }
+        Integer localMax = dialogs_read_inbox_max.get(dialogId);
+        if (localMax == null || localMax <= 0) {
+            return;
+        }
+        // The local position, not the last message of the dialog. In a dialog
+        // the user never opened this is the server's own value, so the request
+        // is a harmless no-op instead of "everything is read" for messages that
+        // were never looked at.
+        novaEnqueueRead(dialogId, localMax);
+    }
+
+    /**
+     * NovaGram: puts a read receipt into the ordinary outgoing queue. The queue
+     * is drained on the stage queue, which is also where it is written, so the
+     * task is built there and nowhere else.
+     */
+    private void novaEnqueueRead(long dialogId, int maxId) {
+        if (maxId <= 0 || DialogObject.isEncryptedDialog(dialogId)) {
+            return;
+        }
+        Utilities.stageQueue.postRunnable(() -> {
+            ReadTask task = readTasksMap.get(dialogId);
+            if (task == null) {
+                task = new ReadTask();
+                task.dialogId = dialogId;
+                task.replyId = 0;
+                task.monoForumPeerId = 0;
+                task.sendRequestTime = SystemClock.elapsedRealtime();
+                readTasksMap.put(dialogId, task);
+                readTasks.add(task);
+            }
+            task.maxId = Math.max(task.maxId, maxId);
+        });
+    }
+
+    /**
+     * NovaGram: settles every read that is still being held, for all dialogs at
+     * once. The gate answers "withhold" until the rules are decrypted, so a
+     * read taken in that window is held for a dialog that may never appear in
+     * the waiting list — a chat opened at start-up sends no new message — and
+     * nothing else ever looks at {@code novaHeldDialogReads} again. Called once
+     * the rules are known. Main thread.
+     */
+    public void novaSettleHeldReads() {
+        if (novaHeldDialogReads.isEmpty() && novaHeldContentReads.isEmpty()) {
+            return;
+        }
+        HashSet<Long> dialogIds = new HashSet<>(novaHeldDialogReads.keySet());
+        dialogIds.addAll(novaHeldContentReads.keySet());
+        for (Long dialogId : dialogIds) {
+            if (dialogId == null || NovaReadStatus.isUndecided(currentAccount, dialogId)) {
+                continue;
+            }
+            if (NovaReadStatus.isHidden(currentAccount, dialogId)) {
+                novaForgetHeldReads(dialogId);
+            } else {
+                novaSendHeldReads(dialogId);
+            }
+        }
+    }
+
+    /**
+     * NovaGram: forgets the reads held for this dialog, because it turned out
+     * to be one where receipts are withheld for good, or because the
+     * conversation itself is gone.
+     */
+    public void novaForgetHeldReads(long dialogId) {
+        novaHeldContentReads.remove(dialogId);
+        novaHeldDialogReads.remove(dialogId);
     }
 
     private void completeReadTask(ReadTask task) {
@@ -14734,6 +14897,26 @@ public class MessagesController extends BaseController implements NotificationCe
             monoForumPeerId = threadId;
         } else {
             monoForumPeerId = 0;
+        }
+
+        if (createReadTask && NovaReadStatus.isHidden(currentAccount, dialogId)) {
+            // NovaGram: the local half above has already run, so the dialog
+            // looks read here, while nothing about it reaches the server and
+            // the other side never sees the read marks. Placed after the local
+            // work on purpose — the user still wants their own unread counter
+            // and notifications cleared.
+            createReadTask = false;
+            if (threadId == 0
+                    && maxPositiveId > 0
+                    && NovaReadStatus.isUndecided(currentAccount, dialogId)) {
+                // Not decided yet, so this is a wait rather than a drop: the
+                // dialog may still turn out to be one the user started, and by
+                // then nothing would ask for this read again.
+                Integer previous = novaHeldDialogReads.get(dialogId);
+                if (previous == null || previous < maxPositiveId) {
+                    novaHeldDialogReads.put(dialogId, maxPositiveId);
+                }
+            }
         }
 
         if (createReadTask) {
@@ -20061,7 +20244,8 @@ public class MessagesController extends BaseController implements NotificationCe
                                 getNotificationsController().getNotificationsSettingsFacade().applyDialogNotificationsSettings(dialogId, topicId, update.notify_settings);
                             } else if (update.peer instanceof TLRPC.TL_notifyChats) {
                                 if ((update.notify_settings.flags & 1) != 0) {
-                                    editor.putBoolean("EnablePreviewGroup", update.notify_settings.show_previews);
+                                    // NovaGram: see putServerPreview above.
+                                    NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewGroup", update.notify_settings.show_previews);
                                 }
                                 if ((update.notify_settings.flags & 2) != 0) {
                                     /*if (update.notify_settings.silent) {
@@ -20080,7 +20264,8 @@ public class MessagesController extends BaseController implements NotificationCe
                                 getNotificationsController().getNotificationsSettingsFacade().applySoundSettings(update.notify_settings.android_sound, editor, 0, 0, NotificationsController.TYPE_GROUP, false);
                             } else if (update.peer instanceof TLRPC.TL_notifyUsers) {
                                 if ((update.notify_settings.flags & 1) != 0) {
-                                    editor.putBoolean("EnablePreviewAll", update.notify_settings.show_previews);
+                                    // NovaGram: see putServerPreview above.
+                                    NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewAll", update.notify_settings.show_previews);
                                 }
                                 if ((update.notify_settings.flags & 2) != 0) {
                                     /*if (update.notify_settings.silent) {
@@ -20119,7 +20304,8 @@ public class MessagesController extends BaseController implements NotificationCe
                                 }
                             } else if (update.peer instanceof TLRPC.TL_notifyBroadcasts) {
                                 if ((update.notify_settings.flags & 1) != 0) {
-                                    editor.putBoolean("EnablePreviewChannel", update.notify_settings.show_previews);
+                                    // NovaGram: see putServerPreview above.
+                                    NovaNotificationPrivacy.putServerPreview(editor, currentAccount, "EnablePreviewChannel", update.notify_settings.show_previews);
                                 }
                                 if ((update.notify_settings.flags & 2) != 0) {
                                     /*if (update.notify_settings.silent) {

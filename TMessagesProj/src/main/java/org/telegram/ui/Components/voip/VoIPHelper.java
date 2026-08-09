@@ -37,6 +37,8 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.voip.Instance;
 import org.telegram.messenger.voip.VoIPService;
 import org.telegram.tgnet.ConnectionsManager;
@@ -73,7 +75,37 @@ public class VoIPHelper {
 
 	private static final int VOIP_SUPPORT_ID = 4244000;
 
+	/**
+	 * Outside the decoy the plain NovaGram sentence is the right answer: the
+	 * user is being told why their own client will not place calls. Inside the
+	 * decoy that same sentence is a leak of another kind — nothing in Telegram
+	 * is worded like it — so there the refusal borrows Telegram's own, which
+	 * is also what a call that cannot reach the network really looks like.
+	 */
+	private static void refuseCall(Activity activity) {
+		if (activity == null) {
+			return;
+		}
+		if (!NovaDecoyState.isActive(activity)) {
+			Toast.makeText(activity, R.string.NovaCallsDisabled, Toast.LENGTH_LONG).show();
+			return;
+		}
+		try {
+			new AlertDialog.Builder(activity)
+					.setTitle(LocaleController.getString(R.string.VoipFailed))
+					.setMessage(LocaleController.getString(R.string.VoipErrorUnknown))
+					.setPositiveButton(LocaleController.getString(R.string.OK), null)
+					.show();
+		} catch (Exception e) {
+			FileLog.e(e);
+		}
+	}
+
 	public static void startCall(TLRPC.User user, boolean videoCall, boolean canVideoCall, final Activity activity, TLRPC.UserFull userFull, AccountInstance accountInstance) {
+		if (!NovaCallPolicy.areCallsAllowed(activity)) {
+			refuseCall(activity);
+			return;
+		}
 		if (accountInstance == null ? MessagesController.getInstance(UserConfig.selectedAccount).isFrozen() : accountInstance.getMessagesController().isFrozen()) {
 			AccountFrozenAlert.show(accountInstance == null ? UserConfig.selectedAccount : accountInstance.getCurrentAccount());
 			return;
@@ -127,6 +159,10 @@ public class VoIPHelper {
 
 	public static void startCall(TLRPC.Chat chat, TLRPC.InputPeer peer, String hash, boolean createCall, Boolean checkJoiner, Activity activity, BaseFragment fragment, AccountInstance accountInstance) {
 		if (activity == null) {
+			return;
+		}
+		if (!NovaCallPolicy.areCallsAllowed(activity)) {
+			refuseCall(activity);
 			return;
 		}
 		if (ConnectionsManager.getInstance(UserConfig.selectedAccount).getConnectionState() != ConnectionsManager.ConnectionStateConnected) {

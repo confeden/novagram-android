@@ -50,6 +50,7 @@ import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLoader;
@@ -159,6 +160,9 @@ public class PopupNotificationActivity extends Activity implements NotificationC
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (NovaPinSession.guardAfterSuper(this)) {
+            return;
+        }
         Theme.createDialogsResources(this);
         Theme.createChatResources(this, false);
 

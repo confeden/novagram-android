@@ -35,6 +35,7 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -72,6 +73,11 @@ public class ExternalActionActivity extends Activity implements INavigationLayou
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if (!NovaPinSession.isUnlocked()) {
+            super.onCreate(savedInstanceState);
+            NovaPinSession.guardAfterSuper(this);
+            return;
+        }
         ApplicationLoader.postInitApplication();
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);

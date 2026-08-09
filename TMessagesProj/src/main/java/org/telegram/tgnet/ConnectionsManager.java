@@ -44,6 +44,8 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaDecoyServer;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.ui.Components.VideoPlayer;
 import org.telegram.ui.LoginActivity;
 
@@ -142,6 +144,17 @@ public class ConnectionsManager extends BaseController {
 
     private boolean forceTryIpV6;
 
+    /**
+     * True while the decoy armed by the emergency PIN is in effect. Every
+     * native entry point below is closed behind it, so the transport is never
+     * created, never handed an address and never given a request: the promise
+     * that the decoy does not connect to Telegram is kept at the boundary
+     * rather than by hoping there is nothing to connect to.
+     */
+    private static boolean offline() {
+        return NovaDecoyState.isActive();
+    }
+
     static {
         ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(CORE_POOL_SIZE, MAXIMUM_POOL_SIZE, KEEP_ALIVE_SECONDS, TimeUnit.SECONDS, sPoolWorkQueue, sThreadFactory);
         threadPoolExecutor.allowCoreThreadTimeOut(true);
@@ -156,12 +169,18 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void discardConnection(int dcId, int connectionType) {
+        if (offline()) {
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             native_discardConnection(currentAccount, dcId, connectionType);
         });
     }
 
     public void failNotRunningRequest(int requestToken) {
+        if (offline()) {
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             native_failNotRunningRequest(currentAccount, requestToken);
         });
@@ -202,6 +221,14 @@ public class ConnectionsManager extends BaseController {
 
     public ConnectionsManager(int instance) {
         super(instance);
+        if (offline()) {
+            // The transport is not started at all. Reporting "connected" is
+            // what keeps the chat list from wearing a "Connecting…" title,
+            // which would be the first thing to give the decoy away.
+            connectionState = ConnectionStateConnected;
+            getUserConfig().loadConfig();
+            return;
+        }
         connectionState = native_getConnectionState(currentAccount);
         String deviceModel;
         String systemLangCode;
@@ -290,22 +317,37 @@ public class ConnectionsManager extends BaseController {
     }
 
     public long getCurrentTimeMillis() {
+        if (offline()) {
+            return System.currentTimeMillis();
+        }
         return native_getCurrentTimeMillis(currentAccount);
     }
 
     public int getCurrentTime() {
+        if (offline()) {
+            return (int) (System.currentTimeMillis() / 1000);
+        }
         return native_getCurrentTime(currentAccount);
     }
 
     public int getCurrentDatacenterId() {
+        if (offline()) {
+            return DEFAULT_DATACENTER_ID;
+        }
         return native_getCurrentDatacenterId(currentAccount);
     }
 
     public long getCurrentAuthKeyId() {
+        if (offline()) {
+            return 0;
+        }
         return native_getCurrentAuthKeyId(currentAccount);
     }
 
     public int getTimeDifference() {
+        if (offline()) {
+            return 0;
+        }
         return native_getTimeDifference(currentAccount);
     }
 
@@ -389,6 +431,14 @@ public class ConnectionsManager extends BaseController {
     }
 
     private void sendRequestInternal(TLObject object, RequestDelegate onComplete, RequestDelegateTimestamp onCompleteTimestamp, QuickAckDelegate onQuickAck, WriteToSocketDelegate onWriteToSocket, int flags, int datacenterId, int connectionType, boolean immediate, int requestToken) {
+        if (object instanceof TLRPC.TL_help_saveAppLog) {
+            object.freeResources();
+            return;
+        }
+        if (offline()) {
+            answerOffline(object, onComplete, onCompleteTimestamp);
+            return;
+        }
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("send request " + object + " with token = " + requestToken);
         }
@@ -474,6 +524,34 @@ public class ConnectionsManager extends BaseController {
         } catch (Exception e) {
             FileLog.e(e);
         }
+    }
+
+    /**
+     * The end of the line for every request made while the decoy is on.
+     *
+     * <p>{@link NovaDecoyServer} answers the few requests the interface cannot
+     * do without and leaves the rest without a callback. Silence is on purpose:
+     * an error makes parts of the client retry forever, while a request that
+     * never comes back is a state it is built to sit in. The delivery mirrors
+     * the real path, including the stage queue, so callers cannot tell the
+     * difference by where their callback runs.</p>
+     */
+    private void answerOffline(TLObject object, RequestDelegate onComplete, RequestDelegateTimestamp onCompleteTimestamp) {
+        final TLObject response = NovaDecoyServer.respond(currentAccount, object);
+        object.freeResources();
+        if (response == null) {
+            return;
+        }
+        final long timestamp = System.currentTimeMillis();
+        Utilities.stageQueue.postRunnable(() -> {
+            if (onComplete != null) {
+                onComplete.run(response, null);
+            } else if (onCompleteTimestamp != null) {
+                onCompleteTimestamp.run(response, null, timestamp);
+            } else if (response instanceof TLRPC.Updates) {
+                AccountInstance.getInstance(currentAccount).getMessagesController().processUpdates((TLRPC.Updates) response, false);
+            }
+        });
     }
 
     private final ConcurrentHashMap<Integer, RequestCallbacks> requestCallbacks = new ConcurrentHashMap<>();
@@ -572,6 +650,12 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void cancelRequest(int token, boolean notifyServer, Runnable onCancelled) {
+        if (offline()) {
+            if (onCancelled != null) {
+                Utilities.stageQueue.postRunnable(onCancelled);
+            }
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             if (onCancelled != null) {
                 listenCancel(token, () -> {
@@ -583,23 +667,32 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void cleanup(boolean resetKeys) {
+        if (offline()) {
+            return;
+        }
         native_cleanUp(currentAccount, resetKeys);
     }
 
     public void cancelRequestsForGuid(int guid) {
+        if (offline()) {
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             native_cancelRequestsForGuid(currentAccount, guid);
         });
     }
 
     public void bindRequestToGuid(int requestToken, int guid) {
-        if (guid == 0) {
+        if (guid == 0 || offline()) {
             return;
         }
         native_bindRequestToGuid(currentAccount, requestToken, guid);
     }
 
     public void applyDatacenterAddress(int datacenterId, String ipAddress, int port) {
+        if (offline()) {
+            return;
+        }
         native_applyDatacenterAddress(currentAccount, datacenterId, ipAddress, port);
     }
 
@@ -611,10 +704,16 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void setUserId(long id) {
+        if (offline()) {
+            return;
+        }
         native_setUserId(currentAccount, id);
     }
 
     public void checkConnection() {
+        if (offline()) {
+            return;
+        }
         byte selectedStrategy = getIpStrategy();
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("selected ip strategy " + selectedStrategy);
@@ -624,10 +723,16 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void setPushConnectionEnabled(boolean value) {
+        if (offline()) {
+            return;
+        }
         native_setPushConnectionEnabled(currentAccount, value);
     }
 
     public void init(int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection) {
+        if (offline()) {
+            return;
+        }
         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
         String proxyAddress = preferences.getString("proxy_ip", "");
         String proxyUsername = preferences.getString("proxy_user", "");
@@ -673,6 +778,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void setLangCode(String langCode) {
+        if (offline()) {
+            return;
+        }
         langCode = langCode.replace('_', '-').toLowerCase();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             native_setLangCode(a, langCode);
@@ -680,6 +788,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void setRegId(String regId, @PushListenerController.PushType int type, String status) {
+        if (offline()) {
+            return;
+        }
         String pushString = regId;
         if (!TextUtils.isEmpty(pushString) && type == PushListenerController.PUSH_TYPE_HUAWEI) {
             pushString = "huawei://" + pushString;
@@ -697,6 +808,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void setSystemLangCode(String langCode) {
+        if (offline()) {
+            return;
+        }
         langCode = langCode.replace('_', '-').toLowerCase();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             native_setSystemLangCode(a, langCode);
@@ -704,24 +818,39 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void switchBackend(boolean restart) {
+        if (offline()) {
+            return;
+        }
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         preferences.edit().remove("language_showed2").commit();
         native_switchBackend(currentAccount, restart);
     }
 
     public boolean isTestBackend() {
+        if (offline()) {
+            return false;
+        }
         return native_isTestBackend(currentAccount) != 0;
     }
 
     public void resumeNetworkMaybe() {
+        if (offline()) {
+            return;
+        }
         native_resumeNetwork(currentAccount, true);
     }
 
     public void updateDcSettings() {
+        if (offline()) {
+            return;
+        }
         native_updateDcSettings(currentAccount);
     }
 
     public void setDefaultDatacenterId(int dcId) {
+        if (offline()) {
+            return;
+        }
         native_moveDatacenter(currentAccount, dcId);
     }
 
@@ -730,7 +859,7 @@ public class ConnectionsManager extends BaseController {
     }
 
     public long checkProxy(String address, int port, String username, String password, String secret, RequestTimeDelegate requestTimeDelegate) {
-        if (TextUtils.isEmpty(address)) {
+        if (TextUtils.isEmpty(address) || offline()) {
             return 0;
         }
         if (address == null) {
@@ -749,6 +878,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void setAppPaused(final boolean value, final boolean byScreenState) {
+        if (offline()) {
+            return;
+        }
         if (!byScreenState) {
             appPaused = value;
             if (BuildVars.LOGS_ENABLED) {
@@ -856,6 +988,12 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void onRequestNewServerIpAndPort(final int second, final int currentAccount) {
+        if (offline()) {
+            // Native never runs in the decoy, so this callback should never
+            // arrive. Guarded anyway: it is one of the two places that would
+            // put a packet on the wire on its own.
+            return;
+        }
         Utilities.globalQueue.postRunnable(() -> {
             boolean networkOnline = ApplicationLoader.isNetworkOnline();
             Utilities.stageQueue.postRunnable(() -> {
@@ -901,6 +1039,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void getHostByName(String hostName, long address) {
+        if (offline()) {
+            return;
+        }
         AndroidUtilities.runOnUIThread(() -> {
             ResolvedDomain resolvedDomain = dnsCache.get(hostName);
             if (resolvedDomain != null && SystemClock.elapsedRealtime() - resolvedDomain.ttl < 5 * 60 * 1000) {
@@ -949,6 +1090,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void setProxySettings(boolean enabled, String address, int port, String username, String password, String secret) {
+        if (offline()) {
+            return;
+        }
         if (address == null) {
             address = "";
         }
