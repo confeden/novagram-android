@@ -50,7 +50,7 @@ public final class NovaUpdateChecker {
      * from the package, so the whole tag has to be written down here and bumped
      * together with the bases.
      */
-    public static final String RELEASE_TAG = "v7.0.9/12.9.2";
+    public static final String RELEASE_TAG = "v7.0.9.1/12.9.2.1";
 
     private static final String MANIFEST_URL =
             "https://raw.githubusercontent.com/confeden/nova_updates/main/Novagram_android.json";
