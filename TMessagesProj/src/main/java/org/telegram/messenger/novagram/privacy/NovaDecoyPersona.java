@@ -49,6 +49,19 @@ public final class NovaDecoyPersona {
     /** Highest identifier handed out, the floor for anything sent later. */
     public int lastMessageId;
 
+    /**
+     * Profile descriptions, keyed the way the histories are: positive for
+     * users, negative for chats and channels. Most people are absent from it
+     * on purpose — a decoy where everyone wrote a bio is itself the odd thing.
+     */
+    public final LongSparseArray<String> about = new LongSparseArray<>();
+
+    /**
+     * Members of the ordinary groups, the owner first. Broadcast channels are
+     * absent: they do not show a member list.
+     */
+    public final LongSparseArray<ArrayList<Long>> members = new LongSparseArray<>();
+
     private final LongSparseArray<ArrayList<TLRPC.Message>> history = new LongSparseArray<>();
     private final Random random;
     private final int anchor;
@@ -154,6 +167,35 @@ public final class NovaDecoyPersona {
         privateDialog(repairman, resources.getStringArray(R.array.NovaDecoyChatRepairs),
                 6 * DAY + 3 * HOUR, 40 * MINUTE, 0);
         savedMessages(resources.getStringArray(R.array.NovaDecoySavedMessages), 9 * DAY, 2 * DAY);
+
+        about.put(repairman.id, resources.getString(R.string.NovaDecoyAboutRepairs));
+        about.put(delivery.id, resources.getString(R.string.NovaDecoyAboutDelivery));
+        about.put(people.get(7).id, resources.getString(R.string.NovaDecoyAboutContact));
+        about.put(-building.id, resources.getString(R.string.NovaDecoyAboutBuilding));
+        about.put(-deals.id, resources.getString(R.string.NovaDecoyAboutDeals));
+
+        ArrayList<Long> household = new ArrayList<>();
+        household.add(self.id);
+        household.add(mother.id);
+        household.add(father.id);
+        members.put(-family.id, household);
+
+        // Drawn last on purpose. Everything above keeps the identifiers it had
+        // before these were added, so a decoy armed by an earlier build still
+        // generates the same people and the same conversations.
+        ArrayList<Long> residents = new ArrayList<>();
+        residents.add(self.id);
+        residents.add(neighbourOne.id);
+        residents.add(neighbourTwo.id);
+        for (String entry : resources.getStringArray(R.array.NovaDecoyNeighbours)) {
+            int separator = entry.indexOf('|');
+            String first = separator >= 0 ? entry.substring(0, separator) : entry;
+            String last = separator >= 0 ? entry.substring(separator + 1) : "";
+            TLRPC.User resident = user(first, last, false);
+            users.add(resident);
+            residents.add(resident.id);
+        }
+        members.put(-building.id, residents);
     }
 
     // region people and chats

@@ -116,6 +116,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.AnimationNotificationsLocker;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BirthdayController;
@@ -5858,6 +5859,12 @@ public class ChatActivityEnterView extends FrameLayout implements
                 if (ignorePrevTextChange) {
                     return;
                 }
+                // NovaGram: text arrives from the keyboard through the input
+                // connection, not as a touch on this window, so writing a long
+                // message produces no Activity.onUserInteraction at all.
+                // Without this the PIN inactivity timer would fire in the
+                // middle of typing one.
+                NovaPinSession.noteUserInteraction();
 
                 boolean allowChangeToSmile = true;
                 int currentPage;

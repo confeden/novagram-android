@@ -6721,6 +6721,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     public void onUserInteraction() {
         super.onUserInteraction();
         voipLaunchedInBackground = false;
+        // NovaGram: feeds the inactivity options of the PIN lock policy. This
+        // is the one callback Android gives for "the user is still there", and
+        // it costs a field write unless an inactivity option is chosen.
+        NovaPinSession.noteUserInteraction();
     }
 
     @Override

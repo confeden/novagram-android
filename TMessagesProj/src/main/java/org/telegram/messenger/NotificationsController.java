@@ -66,6 +66,8 @@ import androidx.core.graphics.drawable.IconCompat;
 
 import com.google.common.collect.Lists;
 
+import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
+import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.support.LongSparseIntArray;
 import org.telegram.messenger.utils.tlutils.TlUtils;
 import org.telegram.messenger.voip.VoIPGroupNotification;
@@ -1060,6 +1062,9 @@ public class NotificationsController extends BaseController implements Notificat
             boolean added = false;
             boolean edited = false;
             boolean storiesUpdated = false;
+            // NovaGram: a message that arrived over MTProto has taken the place
+            // of the stub a push left behind, see the redraw after the loop.
+            boolean replacedFcmStub = false;
 
             LongSparseArray<Boolean> settingsCache = new LongSparseArray<>();
             SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
@@ -1158,6 +1163,10 @@ public class NotificationsController extends BaseController implements Notificat
                         if (idxOld >= 0) {
                             pushMessages.set(idxOld, messageObject);
                             popup = addToPopupMessages(popupArrayAdd, messageObject, dialogId, isChannel, preferences);
+                            // NovaGram: the real message is here now, and it is
+                            // the only thing that carries the text when the
+                            // server was told not to put it into push.
+                            replacedFcmStub = replacedFcmStub || !isFcm;
                         }
                         if (isFcm && (edited = messageObject.localEdit)) {
                             getMessagesStorage().putPushMessage(messageObject);
@@ -1278,6 +1287,27 @@ public class NotificationsController extends BaseController implements Notificat
                         }
                     }
                 });
+            }
+            if (replacedFcmStub && !isFcm && !hasScheduled
+                    && NovaNotificationPrivacy.isEnabled(currentAccount)) {
+                // NovaGram: nothing else would repaint the shade for a message
+                // that only replaced a stub. The loop above left with continue
+                // before added was set, the unread count did not change so
+                // processDialogsUpdateRead stays quiet, and the block below runs
+                // for push only. Without this the notification would keep saying
+                // "sent you a message" after the text has already arrived — which
+                // is the whole point of keeping the text out of the push queue.
+                // Gated on the switch so that stock behaviour is untouched when
+                // it is off, where the stub already carries the same text and
+                // the repaint would buy nothing.
+                //
+                // delayedPushMessages is deliberately left alone: it is the
+                // queue of messages still waiting to be announced with sound,
+                // and the same batch can carry genuinely new ones next to the
+                // replaced stub. Clearing it here would leave the delayed
+                // runnable with nothing to show, and those messages would
+                // arrive in the shade silently.
+                showOrUpdateNotification(false);
             }
             if (isFcm || hasScheduled) {
                 if (edited) {
@@ -1807,7 +1837,13 @@ public class NotificationsController extends BaseController implements Notificat
             preview[0] = true;
         }
         SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
-        boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true);
+        // NovaGram: one flag decides every "show the text or not" branch in
+        // this method, and every consumer of it - the shade, the ticker, the
+        // MessagingStyle, Android Auto - is fed from here. Hiding at this
+        // point reaches all of them; hiding at the notification builders would
+        // have left Android Auto reading the text straight out of this method.
+        boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true)
+                && !NovaNotificationContent.isEnabled();
         if (messageObject.isFcmMessage()) {
             if (chat_id == 0 && fromId != 0) {
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
@@ -1916,6 +1952,19 @@ public class NotificationsController extends BaseController implements Notificat
         } else {
             boolean isChannel = ChatObject.isChannel(chat) && !chat.megagroup;
             if (messageObject.messageOwner != null && messageObject.messageOwner.rich_message != null) {
+                // NovaGram: upstream returns the body here, above the preview
+                // gate below and with preview[0] still true, so a rich message
+                // walks past every "do not show the text" answer this method
+                // gives. Only the fork's own switch is honoured here: the
+                // stock per-dialog and per-type preview settings leaking
+                // through this branch is an upstream defect and stays its own
+                // question.
+                if (NovaNotificationContent.isEnabled()) {
+                    if (preview != null) {
+                        preview[0] = false;
+                    }
+                    return LocaleController.getString(R.string.Message);
+                }
                 return messageObject.messageText.toString();
             }
             if (dialogPreviewEnabled && (chat_id == 0 && fromId != 0 && preferences.getBoolean("EnablePreviewAll", true) || chat_id != 0 && (!isChannel && preferences.getBoolean("EnablePreviewGroup", true) || isChannel && preferences.getBoolean("EnablePreviewChannel", true)))) {
@@ -2500,7 +2549,9 @@ public class NotificationsController extends BaseController implements Notificat
             chatId = fromId < 0 ? -fromId : 0;
         }
         SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
-        boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true);
+        // NovaGram: see the twin in getShortStringForMessage above.
+        boolean dialogPreviewEnabled = preferences.getBoolean("content_preview_" + dialogId, true)
+                && !NovaNotificationContent.isEnabled();
         if (messageObject.isFcmMessage()) {
             if (chatId == 0 && fromId != 0) {
                 if (!dialogPreviewEnabled || !preferences.getBoolean("EnablePreviewAll", true)) {
@@ -6027,6 +6078,17 @@ public class NotificationsController extends BaseController implements Notificat
     }
 
     public void updateServerNotificationsSettings(long dialogId, long topicId, boolean post) {
+        updateServerNotificationsSettings(dialogId, topicId, post, null);
+    }
+
+    /**
+     * NovaGram: {@code onConfirmed} runs on the main thread, and only when the
+     * server answered without an error. It is not called at all for an
+     * encrypted dialog, where nothing is sent. Same reason as for the global
+     * scopes: "sent" must not be recorded as "applied".
+     */
+    public void updateServerNotificationsSettings(
+            long dialogId, long topicId, boolean post, Runnable onConfirmed) {
         if (post) {
             getNotificationCenter().postNotificationName(NotificationCenter.notificationsSettingsUpdated);
         }
@@ -6040,7 +6102,11 @@ public class NotificationsController extends BaseController implements Notificat
         final String key = NotificationsController.getSharedPrefKey(dialogId, topicId);
 
         req.settings.flags |= 1;
-        req.settings.show_previews = preferences.getBoolean("content_preview_" + key, true);
+        // NovaGram: while the switch is on the server hears "no previews" for
+        // every scope, so it never puts the text of a message into push. The
+        // local preference keeps deciding what is drawn on this device.
+        req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
+                currentAccount, preferences.getBoolean("content_preview_" + key, true));
 
         req.settings.flags |= 2;
         req.settings.silent = preferences.getBoolean("silent_" + key, false);
@@ -6098,6 +6164,9 @@ public class NotificationsController extends BaseController implements Notificat
 
         getConnectionsManager().sendRequest(req, (response, error) -> {
            // FileLog.d("updateServerNotificationsSettings " + dialogId + " " + topicId + " error = " + error);
+            if (onConfirmed != null && error == null) {
+                AndroidUtilities.runOnUIThread(onConfirmed);
+            }
         });
     }
 
@@ -6109,6 +6178,16 @@ public class NotificationsController extends BaseController implements Notificat
     public final static int TYPE_REACTIONS_STORIES = 5;
 
     public void updateServerNotificationsSettings(int type) {
+        updateServerNotificationsSettings(type, null);
+    }
+
+    /**
+     * NovaGram: {@code onConfirmed} runs on the main thread, and only when the
+     * server answered without an error. Nothing may treat "sent" as "applied":
+     * a request that dies in the send queue while the phone is offline would
+     * otherwise be written down as done and never repeated.
+     */
+    public void updateServerNotificationsSettings(int type, Runnable onConfirmed) {
         SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
         if (type == TYPE_REACTIONS_MESSAGES || type == TYPE_REACTIONS_STORIES) {
             TL_account.setReactionsNotifySettings req = new TL_account.setReactionsNotifySettings();
@@ -6129,9 +6208,15 @@ public class NotificationsController extends BaseController implements Notificat
                     req.settings.stories_notify_from = new TL_account.TL_reactionNotificationsFromAll();
                 }
             }
-            req.settings.show_previews = preferences.getBoolean("EnableReactionsPreview", true);
+            // NovaGram: see serverShowPreviews above.
+            req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
+                    currentAccount, preferences.getBoolean("EnableReactionsPreview", true));
             req.settings.sound = getInputSound(preferences, "ReactionSound", "ReactionSoundDocId", "ReactionSoundPath");
-            getConnectionsManager().sendRequest(req, (response, error) -> { });
+            getConnectionsManager().sendRequest(req, (response, error) -> {
+                if (onConfirmed != null && error == null) {
+                    AndroidUtilities.runOnUIThread(onConfirmed);
+                }
+            });
             return;
         }
 
@@ -6141,14 +6226,18 @@ public class NotificationsController extends BaseController implements Notificat
         if (type == TYPE_GROUP) {
             req.peer = new TLRPC.TL_inputNotifyChats();
             req.settings.mute_until = preferences.getInt("EnableGroup2", 0);
-            req.settings.show_previews = preferences.getBoolean("EnablePreviewGroup", true);
+            // NovaGram: see serverShowPreviews above.
+            req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
+                    currentAccount, preferences.getBoolean("EnablePreviewGroup", true));
 
             req.settings.flags |= 8;
             req.settings.sound = getInputSound(preferences, "GroupSound", "GroupSoundDocId", "GroupSoundPath");
         } else if (type == TYPE_PRIVATE || type == TYPE_STORIES) {
             req.peer = new TLRPC.TL_inputNotifyUsers();
             req.settings.mute_until = preferences.getInt("EnableAll2", 0);
-            req.settings.show_previews = preferences.getBoolean("EnablePreviewAll", true);
+            // NovaGram: see serverShowPreviews above.
+            req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
+                    currentAccount, preferences.getBoolean("EnablePreviewAll", true));
 
             req.settings.flags |= 128;
             req.settings.stories_hide_sender = preferences.getBoolean("EnableHideStoriesSenders", false);
@@ -6165,13 +6254,19 @@ public class NotificationsController extends BaseController implements Notificat
         } else {
             req.peer = new TLRPC.TL_inputNotifyBroadcasts();
             req.settings.mute_until = preferences.getInt("EnableChannel2", 0);
-            req.settings.show_previews = preferences.getBoolean("EnablePreviewChannel", true);
+            // NovaGram: see serverShowPreviews above.
+            req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
+                    currentAccount, preferences.getBoolean("EnablePreviewChannel", true));
 
             req.settings.flags |= 8;
             req.settings.sound = getInputSound(preferences, "ChannelSound", "ChannelSoundDocId", "ChannelSoundPath");
         }
 
-        getConnectionsManager().sendRequest(req, (response, error) -> { });
+        getConnectionsManager().sendRequest(req, (response, error) -> {
+            if (onConfirmed != null && error == null) {
+                AndroidUtilities.runOnUIThread(onConfirmed);
+            }
+        });
     }
 
     private TLRPC.NotificationSound getInputSound(SharedPreferences preferences, String namePref, String docPref, String pathPref) {

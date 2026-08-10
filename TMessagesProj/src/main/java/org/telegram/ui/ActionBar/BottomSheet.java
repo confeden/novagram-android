@@ -60,6 +60,7 @@ import androidx.core.view.NestedScrollingParentHelper;
 import androidx.core.view.ViewCompat;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.AnimationNotificationsLocker;
 import org.telegram.messenger.BuildConfig;
 import org.telegram.messenger.FileLog;
@@ -1930,6 +1931,10 @@ public class BottomSheet extends Dialog implements BaseFragment.AttachedSheet {
         if (dismissed) {
             return false;
         }
+        // NovaGram: a sheet is its own window, so touches in it never reach
+        // Activity.onUserInteraction and the PIN inactivity timer would not
+        // see a user who is busy in one.
+        NovaPinSession.noteUserInteraction();
         return super.dispatchTouchEvent(ev);
     }
 

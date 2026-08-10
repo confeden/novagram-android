@@ -47,6 +47,8 @@ public final class NovaPinGateActivity extends Activity {
      * simply launching the activity.
      */
     public static final String EXTRA_SETUP_EMERGENCY = "novagram.setup_emergency";
+    /** Opens the gate to remove the application PIN, see NovaPinVault.disable. */
+    public static final String EXTRA_DISABLE_PIN = "novagram.disable_pin";
 
     private static final int BACKGROUND_COLOR = Color.rgb(23, 33, 43);
     private static final int PANEL_COLOR = Color.rgb(36, 47, 61);
@@ -127,7 +129,7 @@ public final class NovaPinGateActivity extends Activity {
         // The mandatory gate cannot be bypassed through back navigation, but
         // the emergency setup flow is entered from an unlocked application and
         // has to be dismissable.
-        if (isEmergencySetupRequested()) {
+        if (isEmergencySetupRequested() || isDisableRequested()) {
             super.onBackPressed();
         }
     }
@@ -135,6 +137,11 @@ public final class NovaPinGateActivity extends Activity {
     private boolean isEmergencySetupRequested() {
         Intent intent = getIntent();
         return intent != null && intent.getBooleanExtra(EXTRA_SETUP_EMERGENCY, false);
+    }
+
+    private boolean isDisableRequested() {
+        Intent intent = getIntent();
+        return intent != null && intent.getBooleanExtra(EXTRA_DISABLE_PIN, false);
     }
 
     @Override
@@ -211,10 +218,20 @@ public final class NovaPinGateActivity extends Activity {
                 setBusy(false);
                 switch (inspection.getState()) {
                     case NOT_ENROLLED:
+                        if (isDisableRequested()) {
+                            // Nothing to remove: the settings row that leads
+                            // here is only drawn when a PIN is set, so this
+                            // means it was removed from somewhere else while
+                            // the screen was open.
+                            finish();
+                            return;
+                        }
                         showFirstEnrollment();
                         break;
                     case ENROLLED:
-                        if (isEmergencySetupRequested()) {
+                        if (isDisableRequested()) {
+                            showDisableVerify();
+                        } else if (isEmergencySetupRequested()) {
                             showEmergencyVerify();
                         } else {
                             showUnlock();
@@ -285,6 +302,17 @@ public final class NovaPinGateActivity extends Activity {
         clearInput();
         titleView.setText(R.string.NovaPinUnlockTitle);
         descriptionView.setText(R.string.NovaPinHiddenInputHint);
+        errorView.setText("");
+        actionPanel.removeAllViews();
+        setBusy(false);
+        renderKeypad();
+    }
+
+    private void showDisableVerify() {
+        mode = Mode.DISABLE_VERIFY;
+        clearInput();
+        titleView.setText(R.string.NovaPinDisableTitle);
+        descriptionView.setText(R.string.NovaPinDisableDescription);
         errorView.setText("");
         actionPanel.removeAllViews();
         setBusy(false);
@@ -507,6 +535,8 @@ public final class NovaPinGateActivity extends Activity {
             beginEnrollment(confirmed, false);
         } else if (mode == Mode.UNLOCK) {
             beginVerification(entered);
+        } else if (mode == Mode.DISABLE_VERIFY) {
+            beginDisable(entered);
         } else if (mode == Mode.EMERGENCY_VERIFY) {
             beginEmergencyGate(entered);
         } else if (mode == Mode.EMERGENCY_FIRST) {
@@ -613,6 +643,73 @@ public final class NovaPinGateActivity extends Activity {
             }
             runOnUiThread(() -> handleVerification(result));
         });
+    }
+
+    private void beginDisable(char[] pin) {
+        setBusy(true);
+        descriptionView.setText(R.string.NovaPinCheckingPin);
+        errorView.setText("");
+        executor.execute(() -> {
+            NovaPinVault.VerificationResult result;
+            try {
+                result = vault.disable(pin);
+            } finally {
+                clearSecret(pin);
+            }
+            runOnUiThread(() -> handleDisable(result));
+        });
+    }
+
+    private void handleDisable(NovaPinVault.VerificationResult result) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        setBusy(false);
+        switch (result.getStatus()) {
+            case ACCEPTED:
+                // The application stays open and unlocked - the user is
+                // standing in its settings. Remembering the refusal keeps the
+                // "set a PIN" prompt from asking again on the next start,
+                // which after a deliberate removal would read as nagging.
+                NovaPrivacySettings.global(getApplicationContext())
+                        .setAppPinDeclined(true);
+                NovaPinSession.unlock();
+                Toast.makeText(this, R.string.NovaPinDisabled, Toast.LENGTH_LONG).show();
+                finish();
+                break;
+            case EMERGENCY:
+                // Answered exactly as everywhere else, and deliberately so:
+                // being made to switch the PIN off is the situation the
+                // emergency PIN is for.
+                beginEmergencyWipe();
+                break;
+            case REJECTED:
+                showDisableVerify();
+                errorView.setText(R.string.NovaPinIncorrect);
+                renderKeypad();
+                if (result.getRetryAfterMillis() > 0L) {
+                    startCountdown(result.getRetryAfterMillis());
+                }
+                break;
+            case LOCKED:
+                showDisableVerify();
+                startCountdown(result.getRetryAfterMillis());
+                break;
+            case NOT_ENROLLED:
+                finish();
+                break;
+            case INVALID_PIN:
+                showDisableVerify();
+                errorView.setText(R.string.NovaPinInvalidLength);
+                break;
+            case CORRUPT_STATE:
+                showFatal(R.string.NovaPinCorruptState);
+                break;
+            case UNAVAILABLE:
+            default:
+                showFatal(R.string.NovaPinStorageUnavailable);
+                break;
+        }
     }
 
     private void handleVerification(NovaPinVault.VerificationResult result) {
@@ -754,6 +851,7 @@ public final class NovaPinGateActivity extends Activity {
         ENROLL_CONFIRM,
         SOFTWARE_WARNING,
         UNLOCK,
+        DISABLE_VERIFY,
         EMERGENCY_VERIFY,
         EMERGENCY_FIRST,
         EMERGENCY_CONFIRM,

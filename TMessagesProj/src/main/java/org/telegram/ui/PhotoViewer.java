@@ -156,6 +156,7 @@ import com.google.android.gms.vision.face.Face;
 import com.google.android.gms.vision.face.FaceDetector;
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.AnimationNotificationsLocker;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.Bitmaps;
@@ -3055,6 +3056,11 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent ev) {
+            // NovaGram: the viewer lives in its own WindowManager window, so
+            // swiping through media never reaches Activity.onUserInteraction
+            // and the PIN inactivity timer would take a watching user for an
+            // absent one.
+            NovaPinSession.noteUserInteraction();
             textSelectionHelper.getOverlayView(getContext()).checkCancelAction(ev);
             if (textSelectionHelper.isInSelectionMode()) {
                 if (textSelectionHelper.getOverlayView(getContext()).onTouchEvent(ev)) {

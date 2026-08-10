@@ -10,6 +10,7 @@ import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 
+import java.util.ArrayList;
 import java.util.Locale;
 
 /**
@@ -44,6 +45,15 @@ public final class NovaDecoyServer {
             }
             if (request instanceof TLRPC.TL_messages_getHistory) {
                 return history((TLRPC.TL_messages_getHistory) request);
+            }
+            if (request instanceof TLRPC.TL_users_getFullUser) {
+                return fullUser((TLRPC.TL_users_getFullUser) request);
+            }
+            if (request instanceof TLRPC.TL_messages_getFullChat) {
+                return fullChat((TLRPC.TL_messages_getFullChat) request);
+            }
+            if (request instanceof TLRPC.TL_channels_getFullChannel) {
+                return fullChannel((TLRPC.TL_channels_getFullChannel) request);
             }
             if (request instanceof TLRPC.TL_contacts_getContacts) {
                 return contacts();
@@ -118,6 +128,131 @@ public final class NovaDecoyServer {
         response.chats.addAll(persona.chats);
         response.users.addAll(persona.users);
         return response;
+    }
+
+    /**
+     * Everyone in the decoy is left without the call flags. That is an
+     * ordinary state on the real network — it is what a user who turned calls
+     * off looks like — and it keeps the call button away from a path that has
+     * no server behind it.
+     */
+    private static TLObject fullUser(TLRPC.TL_users_getFullUser request) {
+        NovaDecoyPersona persona = NovaDecoyPersona.build();
+        long id = userId(request.id, persona);
+        TLRPC.User user = null;
+        for (TLRPC.User candidate : persona.users) {
+            if (candidate.id == id) {
+                user = candidate;
+                break;
+            }
+        }
+        if (user == null) {
+            return null;
+        }
+        TLRPC.TL_userFull full = new TLRPC.TL_userFull();
+        full.id = id;
+        full.settings = new TLRPC.TL_peerSettings();
+        full.notify_settings = new TLRPC.TL_peerNotifySettings();
+        full.common_chats_count = 0;
+        String about = persona.about.get(id);
+        if (about != null && about.length() > 0) {
+            full.about = about;
+            // The bit as well as the field: the client stores this object by
+            // serializing it, and the writer only looks at the flag.
+            full.flags |= 1 << 1;
+        }
+        TLRPC.TL_users_userFull response = new TLRPC.TL_users_userFull();
+        response.full_user = full;
+        response.users.add(user);
+        return response;
+    }
+
+    private static TLObject fullChat(TLRPC.TL_messages_getFullChat request) {
+        NovaDecoyPersona persona = NovaDecoyPersona.build();
+        long dialogId = -request.chat_id;
+        ArrayList<Long> ids = persona.members.get(dialogId);
+        if (request.chat_id == 0 || ids == null || ids.isEmpty()) {
+            return null;
+        }
+        TLRPC.TL_chatParticipants participants = new TLRPC.TL_chatParticipants();
+        participants.chat_id = request.chat_id;
+        participants.version = 1;
+        for (int index = 0; index < ids.size(); index++) {
+            if (index == 0) {
+                TLRPC.TL_chatParticipantCreator creator = new TLRPC.TL_chatParticipantCreator();
+                creator.user_id = ids.get(index);
+                participants.participants.add(creator);
+            } else {
+                TLRPC.TL_chatParticipant participant = new TLRPC.TL_chatParticipant();
+                participant.user_id = ids.get(index);
+                participant.inviter_id = ids.get(0);
+                participant.date = NovaDecoyState.anchor() - 150 * 24 * 60 * 60;
+                participants.participants.add(participant);
+            }
+        }
+        TLRPC.TL_chatFull full = new TLRPC.TL_chatFull();
+        full.id = request.chat_id;
+        full.about = text(persona.about.get(dialogId));
+        full.participants = participants;
+        full.notify_settings = new TLRPC.TL_peerNotifySettings();
+        TLRPC.TL_messages_chatFull response = new TLRPC.TL_messages_chatFull();
+        response.full_chat = full;
+        response.chats.addAll(persona.chats);
+        response.users.addAll(persona.users);
+        return response;
+    }
+
+    private static TLObject fullChannel(TLRPC.TL_channels_getFullChannel request) {
+        NovaDecoyPersona persona = NovaDecoyPersona.build();
+        long channelId = request.channel != null ? request.channel.channel_id : 0;
+        long dialogId = -channelId;
+        if (channelId == 0 || !persona.knowsDialog(dialogId)) {
+            return null;
+        }
+        TLRPC.Chat channel = null;
+        for (TLRPC.Chat candidate : persona.chats) {
+            if (candidate.id == channelId) {
+                channel = candidate;
+                break;
+            }
+        }
+        if (channel == null) {
+            return null;
+        }
+        TLRPC.TL_channelFull full = new TLRPC.TL_channelFull();
+        full.id = channelId;
+        full.about = text(persona.about.get(dialogId));
+        full.participants_count = channel.participants_count;
+        full.flags |= 1;
+        full.chat_photo = new TLRPC.TL_photoEmpty();
+        full.notify_settings = new TLRPC.TL_peerNotifySettings();
+        // Repeated from the dialog list rather than invented, so the profile
+        // of the channel cannot contradict its own row in the list.
+        for (TLRPC.Dialog dialog : persona.dialogs) {
+            if (dialog.id != dialogId) {
+                continue;
+            }
+            full.read_inbox_max_id = dialog.read_inbox_max_id;
+            full.read_outbox_max_id = dialog.read_outbox_max_id;
+            full.unread_count = dialog.unread_count;
+            full.pts = Math.max(dialog.pts, 1);
+        }
+        TLRPC.TL_messages_chatFull response = new TLRPC.TL_messages_chatFull();
+        response.full_chat = full;
+        response.chats.addAll(persona.chats);
+        response.users.addAll(persona.users);
+        return response;
+    }
+
+    private static long userId(TLRPC.InputUser input, NovaDecoyPersona persona) {
+        if (input instanceof TLRPC.TL_inputUserSelf) {
+            return persona.self.id;
+        }
+        return input != null ? input.user_id : 0;
+    }
+
+    private static String text(String value) {
+        return value != null ? value : "";
     }
 
     private static TLObject contacts() {

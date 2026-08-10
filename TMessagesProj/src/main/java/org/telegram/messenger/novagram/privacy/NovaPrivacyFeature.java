@@ -17,6 +17,12 @@ public enum NovaPrivacyFeature {
     SAVED_MESSAGES_RETENTION("saved_messages_retention", Scope.ACCOUNT, true, true),
     SCREENSHOT_PROTECTION("screenshot_protection", Scope.GLOBAL, true, true),
     METADATA_SANITIZATION("metadata_sanitization", Scope.GLOBAL, true, true),
+    READ_STATUS_HIDING("read_status_hiding", Scope.ACCOUNT, true, true),
+    NOTIFICATION_TEXT_OFF_SERVERS("notification_text_off_servers", Scope.ACCOUNT, true, true),
+    // What this device is allowed to draw, as opposed to what the servers are
+    // allowed to compose. A property of the screen in front of the user, so
+    // GLOBAL: the desktop fork keeps the same switch device-wide too.
+    NOTIFICATION_TEXT_HIDDEN_LOCALLY("notification_text_hidden_locally", Scope.GLOBAL, true, true),
     SEARCH_HISTORY_PROTECTION("search_history_protection", Scope.ACCOUNT, true, true),
     SHOW_PEER_IDS("show_peer_ids", Scope.ACCOUNT, true, true),
     ERASE_EVIDENCE("erase_evidence", Scope.ACCOUNT, true, true),

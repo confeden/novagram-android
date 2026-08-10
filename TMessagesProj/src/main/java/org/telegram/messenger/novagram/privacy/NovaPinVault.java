@@ -319,6 +319,68 @@ public final class NovaPinVault {
         }
     }
 
+    /**
+     * Cheap "is a PIN set" answer for the settings screen, which has to draw a
+     * row before it can afford to decrypt anything. It asks the same two
+     * questions {@link #inspect()} asks first and stops there, so it can say
+     * "enrolled" for a state that later turns out to be corrupt - the gate is
+     * what finds that out, and it already reports it.
+     */
+    public boolean isEnrolled() {
+        synchronized (PROCESS_LOCK) {
+            try {
+                return stateFile.isFile() && NovaPinKeyStore.containsKey();
+            } catch (GeneralSecurityException e) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Removes the application PIN after the user has proved they know it.
+     *
+     * <p>The check is {@link #verify}, unchanged and whole, so everything it
+     * guarantees still holds here: the lockout delay after wrong attempts
+     * applies, and the emergency PIN is answered with {@code EMERGENCY} rather
+     * than with a removal. That last part is the reason this does not do its
+     * own comparison. Someone standing over the owner and demanding the PIN be
+     * switched off is exactly the situation the emergency PIN exists for, and
+     * a "remove" screen that quietly refused it - or worse, accepted it and
+     * removed the protection - would be a hole in the one path that must not
+     * have one.</p>
+     *
+     * <p>The emergency PIN goes with the primary one, because the gate is the
+     * only place it can ever be typed and there is no gate without a primary
+     * PIN. Leaving it stored would keep a secret on disk that nothing can
+     * reach, and would let it come back to life unannounced the next time a
+     * PIN is set. The setting screen says this in as many words before asking.
+     * </p>
+     */
+    public VerificationResult disable(char[] pin) {
+        VerificationResult result = verify(pin);
+        if (result.getStatus() != VerificationStatus.ACCEPTED) {
+            return result;
+        }
+        synchronized (PROCESS_LOCK) {
+            try (LockedFile ignored = lock()) {
+                // Both halves, or neither: a state file without its key and a
+                // key without its state file are what inspect() reports as
+                // CORRUPT, and leaving the user there would be worse than
+                // leaving the PIN on.
+                atomicStateFile.delete();
+                NovaPinKeyStore.delete();
+                return result;
+            } catch (GeneralSecurityException | IOException e) {
+                return new VerificationResult(
+                        VerificationStatus.UNAVAILABLE,
+                        0L,
+                        0,
+                        null
+                );
+            }
+        }
+    }
+
     private int readBootCount() {
         try {
             return Settings.Global.getInt(

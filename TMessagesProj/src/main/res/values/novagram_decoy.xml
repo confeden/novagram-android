@@ -32,10 +32,39 @@
         <item>Lena|</item>
     </string-array>
 
+    <!-- The other members of the building group. They are not in the address
+         book and have no conversation: in a real house chat most participants
+         are exactly that, a name and nothing else. -->
+    <string-array name="NovaDecoyNeighbours">
+        <item>Anna|Sokolova</item>
+        <item>Boris|</item>
+        <item>Galina|</item>
+        <item>Igor|Panov</item>
+        <item>Nina|</item>
+        <item>Pavel|</item>
+        <item>Raisa|</item>
+        <item>Roman|</item>
+        <item>Sofia|</item>
+        <item>Tamara|</item>
+        <item>Vadim|</item>
+        <item>Vera|Titova</item>
+        <item>Yuri|</item>
+        <item>Zoya|</item>
+        <item>Maxim|</item>
+    </string-array>
+
     <string name="NovaDecoyGroupFamily">Family</string>
     <string name="NovaDecoyGroupBuilding">Building 14, entrance 2</string>
     <string name="NovaDecoyChannelDeals">Deals nearby</string>
     <string name="NovaDecoyServiceDelivery">Delivery</string>
+
+    <!-- Profile descriptions. Most people have none on purpose: a decoy where
+         everyone wrote a bio is itself the odd thing. -->
+    <string name="NovaDecoyAboutRepairs">Washing machines and fridges. Call-outs across the city.</string>
+    <string name="NovaDecoyAboutDelivery">Order and delivery notifications.</string>
+    <string name="NovaDecoyAboutContact">rarely here</string>
+    <string name="NovaDecoyAboutBuilding">Entrance notices. Adverts are removed.</string>
+    <string name="NovaDecoyAboutDeals">Discounts and offers nearby. No spam.</string>
 
     <string-array name="NovaDecoySavedMessages">
         <item>0|Wi-Fi guest: 8462 0194</item>

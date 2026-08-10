@@ -375,6 +375,8 @@ public class NotificationCenter {
     public static final int webBrowserSettingsUpdate = totalEvents++;
     public static final int communityPendingRequestsUpdate = totalEvents++;
     public static final int communitySwitchedCollapsed = totalEvents++;
+    /** NovaGram: the rules of the read status hiding were read or changed. */
+    public static final int novaReadStatusUpdated = totalEvents++;
 
     public static boolean alreadyLogged;
 

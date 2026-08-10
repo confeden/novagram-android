@@ -62,6 +62,7 @@ import org.telegram.tgnet.NativeByteBuffer;
 import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLObject;
+import org.telegram.messenger.novagram.privacy.NovaNightSilent;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_iv;
@@ -2507,7 +2508,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
 
                     final TLRPC.TL_messages_forwardMessages req = new TLRPC.TL_messages_forwardMessages();
                     req.to_peer = inputPeer;
-                    req.silent = !notify || MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + peer, false);
+                    // Forwarding is a separate path with its own silent flag, so
+                    // night mode has to be joined here as well.
+                    req.silent = !notify
+                            || MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + peer, false)
+                            || NovaNightSilent.isActive(currentAccount, peer, scheduleDate);
                     if (replyToTopMsg != null) {
                         req.top_msg_id = replyToTopMsg.getId();
                         req.flags |= 512;
@@ -4139,13 +4144,16 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         }
         TLRPC.TL_messages_sendMedia request = new TLRPC.TL_messages_sendMedia();
         request.peer = peer;
+        long gameDialogId;
         if (request.peer instanceof TLRPC.TL_inputPeerChannel) {
-            request.silent = MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + -peer.channel_id, false);
+            gameDialogId = -peer.channel_id;
         } else if (request.peer instanceof TLRPC.TL_inputPeerChat) {
-            request.silent = MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + -peer.chat_id, false);
+            gameDialogId = -peer.chat_id;
         } else {
-            request.silent = MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + peer.user_id, false);
+            gameDialogId = peer.user_id;
         }
+        request.silent = MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + gameDialogId, false)
+                || NovaNightSilent.isActive(currentAccount, gameDialogId, 0);
         request.random_id = random_id != 0 ? random_id : getNextRandomId();
         request.message = "";
         request.media = game;
@@ -4732,7 +4740,12 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 }
                 getUserConfig().saveConfig(false);
             }
-            newMsg.silent = !notify || MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + peer, false);
+            // NovaGram night mode joins the existing conditions with an "or":
+            // between 22:00 and 07:00 the recipient's notification stays quiet,
+            // while delivery and everything else is untouched.
+            newMsg.silent = !notify
+                    || MessagesController.getNotificationsSettings(currentAccount).getBoolean("silent_" + peer, false)
+                    || NovaNightSilent.isActive(currentAccount, peer, scheduleDate);
             if (newMsg.random_id == 0) {
                 newMsg.random_id = getNextRandomId();
             }

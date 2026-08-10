@@ -26,6 +26,30 @@ public final class NovaPrivacySettings {
     private static final String KEY_METADATA_POLICY = "metadata_policy";
     private static final String KEY_DOH_PROVIDER_ORDER = "doh_provider_order";
     private static final String KEY_APP_PIN_DECLINED = "app_pin_declined";
+    /**
+     * Night mode keys, spelled exactly as on desktop so that one line in the
+     * roadmap describes both platforms.
+     */
+    /** Spelled the same on the desktop fork, see NovaPinLockPolicy. */
+    private static final String KEY_PIN_LOCK_POLICY = "novagram_pin_lock_policy";
+    private static final String KEY_NIGHT_SILENT = "novagram_night_silent";
+    private static final String KEY_NIGHT_SILENT_USERS = "novagram_night_silent_users";
+    private static final String KEY_NIGHT_SILENT_GROUPS = "novagram_night_silent_groups";
+    private static final String KEY_NIGHT_SILENT_CHANNELS = "novagram_night_silent_channels";
+    /**
+     * What this client last told the Telegram server about notification
+     * previews. Account scoped, because {@code show_previews} is an account
+     * setting on the server side, and remembered so that the request is not
+     * repeated at every start.
+     */
+    private static final String KEY_SERVER_PREVIEW_STATE = "server_preview_state";
+    /**
+     * Which account the value above was written for. The file is named after
+     * the account slot, not after the account, and a slot is reused by whoever
+     * signs into it next, so the value has to name its owner or it would be
+     * read as an answer about a different account.
+     */
+    private static final String KEY_SERVER_PREVIEW_OWNER = "server_preview_owner";
     private static final String FEATURE_PREFIX = "feature_";
 
     private final SharedPreferences globalPreferences;
@@ -191,6 +215,92 @@ public final class NovaPrivacySettings {
         globalPreferences.edit().putBoolean(KEY_APP_PIN_DECLINED, declined).apply();
     }
 
+    /**
+     * Night mode is on by default, and an explicit "off" outlives a change of
+     * that default. Shared preferences give the three states this needs for
+     * free: a key that was never written falls back to the current default,
+     * while a stored {@code false} stays false. Nothing may seed the default —
+     * writing it on first run would turn "untouched" into "explicitly on" and
+     * quietly break the promise.
+     */
+    /**
+     * When the application PIN is asked for again. Stored by key rather than
+     * by ordinal, and an unreadable value falls back to the strictest option
+     * rather than to none: a damaged preference must not quietly weaken a
+     * protection the user chose.
+     */
+    public NovaPinLockPolicy getPinLockPolicy() {
+        return NovaPinLockPolicy.fromStorageKey(
+                readString(globalPreferences, KEY_PIN_LOCK_POLICY),
+                NovaPinLockPolicy.getDefault());
+    }
+
+    public void setPinLockPolicy(NovaPinLockPolicy policy) {
+        if (policy == null) {
+            throw new IllegalArgumentException("policy must not be null");
+        }
+        globalPreferences.edit()
+                .putString(KEY_PIN_LOCK_POLICY, policy.getStorageKey())
+                .apply();
+    }
+
+    public boolean isNightSilentEnabled() {
+        return readBoolean(globalPreferences, KEY_NIGHT_SILENT, true);
+    }
+
+    public void setNightSilentEnabled(boolean enabled) {
+        globalPreferences.edit().putBoolean(KEY_NIGHT_SILENT, enabled).apply();
+    }
+
+    public boolean isNightSilentForUsers() {
+        return readBoolean(globalPreferences, KEY_NIGHT_SILENT_USERS, true);
+    }
+
+    public void setNightSilentForUsers(boolean enabled) {
+        globalPreferences.edit().putBoolean(KEY_NIGHT_SILENT_USERS, enabled).apply();
+    }
+
+    public boolean isNightSilentForGroups() {
+        return readBoolean(globalPreferences, KEY_NIGHT_SILENT_GROUPS, true);
+    }
+
+    public void setNightSilentForGroups(boolean enabled) {
+        globalPreferences.edit().putBoolean(KEY_NIGHT_SILENT_GROUPS, enabled).apply();
+    }
+
+    public boolean isNightSilentForChannels() {
+        return readBoolean(globalPreferences, KEY_NIGHT_SILENT_CHANNELS, true);
+    }
+
+    public void setNightSilentForChannels(boolean enabled) {
+        globalPreferences.edit().putBoolean(KEY_NIGHT_SILENT_CHANNELS, enabled).apply();
+    }
+
+    /**
+     * The values are the {@code SERVER_PREVIEW_*} constants of
+     * {@link NovaNotificationPrivacy}. Zero means the server has never been
+     * told anything by this client, which is also what a fresh install
+     * answers — so the very first start still sends the request. A value left
+     * by an account that used to sit in this slot reads as zero too.
+     *
+     * @param ownerId the identifier of the signed-in user, from
+     *                {@code UserConfig.getClientUserId()}.
+     */
+    public int getServerPreviewState(long ownerId) {
+        SharedPreferences preferences = requireAccountPreferences();
+        if (ownerId == 0 || readLong(preferences, KEY_SERVER_PREVIEW_OWNER, 0L) != ownerId) {
+            return 0;
+        }
+        return readInt(preferences, KEY_SERVER_PREVIEW_STATE, 0);
+    }
+
+    public void setServerPreviewState(int state, long ownerId) {
+        requireAccountPreferences().edit()
+                .putInt(KEY_SERVER_PREVIEW_STATE, state)
+                .putLong(KEY_SERVER_PREVIEW_OWNER, ownerId)
+                .apply();
+    }
+
     private SharedPreferences preferencesFor(NovaPrivacyFeature feature) {
         if (feature == null) {
             throw new IllegalArgumentException("feature must not be null");
@@ -239,6 +349,14 @@ public final class NovaPrivacySettings {
     private static int readInt(SharedPreferences preferences, String key, int fallback) {
         try {
             return preferences.getInt(key, fallback);
+        } catch (ClassCastException ignored) {
+            return fallback;
+        }
+    }
+
+    private static long readLong(SharedPreferences preferences, String key, long fallback) {
+        try {
+            return preferences.getLong(key, fallback);
         } catch (ClassCastException ignored) {
             return fallback;
         }

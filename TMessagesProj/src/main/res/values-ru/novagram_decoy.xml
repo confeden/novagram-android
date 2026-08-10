@@ -30,10 +30,34 @@
         <item>Лена|</item>
     </string-array>
 
+    <string-array name="NovaDecoyNeighbours">
+        <item>Анна|Соколова</item>
+        <item>Борис|</item>
+        <item>Галина|</item>
+        <item>Игорь|Панов</item>
+        <item>Нина|</item>
+        <item>Павел|</item>
+        <item>Раиса|</item>
+        <item>Роман|</item>
+        <item>София|</item>
+        <item>Тамара|</item>
+        <item>Вадим|</item>
+        <item>Вера|Титова</item>
+        <item>Юрий|</item>
+        <item>Зоя|</item>
+        <item>Максим|</item>
+    </string-array>
+
     <string name="NovaDecoyGroupFamily">Семья</string>
     <string name="NovaDecoyGroupBuilding">Дом 14, подъезд 2</string>
     <string name="NovaDecoyChannelDeals">Скидки рядом</string>
     <string name="NovaDecoyServiceDelivery">Доставка</string>
+
+    <string name="NovaDecoyAboutRepairs">Стиральные машины и холодильники. Выезд по городу.</string>
+    <string name="NovaDecoyAboutDelivery">Уведомления о заказах и доставке.</string>
+    <string name="NovaDecoyAboutContact">тут редко</string>
+    <string name="NovaDecoyAboutBuilding">Объявления по подъезду. Реклама удаляется.</string>
+    <string name="NovaDecoyAboutDeals">Скидки и акции рядом. Без спама.</string>
 
     <string-array name="NovaDecoySavedMessages">
         <item>0|Wi-Fi гостевой: 8462 0194</item>

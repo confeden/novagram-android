@@ -41,6 +41,12 @@ public final class NovaEmergencyWipe {
         // the phone can already check elsewhere.
         String[] identity = captureIdentity();
 
+        // Before anything is deleted: a network callback of the auto-delete
+        // engine returning mid-wipe would otherwise seal the queue again, and
+        // recreate both the file and its Keystore key behind the sweep.
+        NovaAutoDelete.shutdown();
+        NovaReadStatus.shutdown();
+
         NovaDecoyState.arm(target, identity[0], identity[1], identity[2]);
         requestServerLogout();
         clearLocalAccounts();
@@ -122,6 +128,19 @@ public final class NovaEmergencyWipe {
         // if a copy of the file was taken before the wipe.
         try {
             NovaPinKeyStore.delete();
+        } catch (Throwable ignored) {
+        }
+        // The auto-delete queue is sealed by its own key, and it holds dialog
+        // and message identifiers: a copy of that file taken beforehand must
+        // stay unreadable too.
+        try {
+            NovaAutoDeleteKeyStore.delete();
+        } catch (Throwable ignored) {
+        }
+        // Same for the read status rules: they name the people whose messages
+        // were read quietly.
+        try {
+            NovaReadStatusStore.deleteKey();
         } catch (Throwable ignored) {
         }
     }

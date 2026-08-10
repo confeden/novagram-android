@@ -109,7 +109,7 @@ android {
 
 
     defaultConfig {
-        minSdkVersion 34
+        minSdkVersion 21
         targetSdkVersion 35
         buildConfigField "int", "TELEGRAM_API_ID", getProps("NOVA_TELEGRAM_API_ID", "0").trim()
         buildConfigField "String", "TELEGRAM_API_HASH", "\"" + getProps("NOVA_TELEGRAM_API_HASH", "").trim() + "\""

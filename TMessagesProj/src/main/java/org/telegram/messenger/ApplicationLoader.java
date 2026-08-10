@@ -41,9 +41,13 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ForegroundDetector;
+import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaDecoyAccount;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
+import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.update.NovaUpdateChecker;
 import org.telegram.ui.Components.ItemOptions;
 import org.telegram.ui.IUpdateLayout;
 import org.telegram.ui.LauncherIconController;
@@ -285,6 +289,18 @@ public class ApplicationLoader extends Application {
         if (!decoy) {
             BillingController.getInstance().startConnection();
             startPushService();
+            // Reads a static file on GitHub, so it belongs on the same side of
+            // this check as push and billing: the decoy talks to nobody.
+            NovaUpdateChecker.start();
+            // Restores the sealed queue and resumes destroying what came due
+            // while the application was closed.
+            NovaAutoDelete.start();
+            // Restores which dialogs withhold read receipts.
+            NovaReadStatus.start();
+            // Tells the server to keep message text out of push if it has not
+            // been told yet. The switch is on by default, so a default nobody
+            // ever sends would be a promise that is not kept.
+            NovaNotificationPrivacy.start();
         }
     }
 
@@ -363,6 +379,23 @@ public class ApplicationLoader extends Application {
                 NovaPinSession.scheduleBackgroundLock();
             }
         });
+        // NovaGram: the "ask again when the device is locked" option. Screen
+        // off is not the same event as leaving the application - locking the
+        // phone with NovaGram still on top does not background it - so it has
+        // to be listened for separately. Registered unconditionally and
+        // answered by the policy, because the option can be changed while the
+        // process is running and a receiver that was never registered could
+        // not then be relied on.
+        try {
+            applicationContext.registerReceiver(new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    NovaPinSession.onScreenOff();
+                }
+            }, new IntentFilter(Intent.ACTION_SCREEN_OFF));
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("load libs time = " + (SystemClock.elapsedRealtime() - startTime));
         }

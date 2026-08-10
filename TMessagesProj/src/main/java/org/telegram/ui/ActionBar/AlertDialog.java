@@ -57,6 +57,7 @@ import androidx.annotation.Nullable;
 import androidx.core.graphics.ColorUtils;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LiteMode;
@@ -318,6 +319,15 @@ public class AlertDialog extends Dialog implements Drawable.Callback, Notificati
     }
 
     private long shownAt;
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        // NovaGram: a dialog is its own window, so touches in it never reach
+        // Activity.onUserInteraction and the PIN inactivity timer would not
+        // see a user who is busy answering one.
+        NovaPinSession.noteUserInteraction();
+        return super.dispatchTouchEvent(event);
+    }
 
     @Override
     public void show() {
