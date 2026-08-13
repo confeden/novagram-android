@@ -23,6 +23,7 @@ import android.widget.RemoteViewsService;
 
 import androidx.collection.LongSparseArray;
 
+import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.AvatarDrawable;
@@ -324,6 +325,15 @@ class ChatsRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
                 }
             }
 
+            // NovaGram: the widget builds its own row, past both notification
+            // composers, and a home screen is drawn for whoever is looking at
+            // the phone - the same audience the switch is about, only without
+            // even having to unlock it. The chat name, the time and the unread
+            // badge stay, for the same reason they stay in a notification.
+            if (NovaNotificationContent.isEnabled(mContext)) {
+                messageString = LocaleController.getString(R.string.Message);
+                textColor = mContext.getResources().getColor(R.color.widget_action_text);
+            }
             rv.setTextViewText(R.id.shortcut_widget_item_time, LocaleController.stringForMessageListDate(message.messageOwner.date));
             rv.setTextViewText(R.id.shortcut_widget_item_message, messageString.toString());
             rv.setTextColor(R.id.shortcut_widget_item_message, textColor);

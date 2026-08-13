@@ -16,6 +16,8 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.browser.Browser;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
+import org.telegram.messenger.novagram.privacy.NovaFileNames;
+import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.novagram.privacy.NovaPinLockPolicy;
@@ -72,6 +74,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_HIDE_CONTENT = 17;
     private static final int ID_APP_PIN_OFF = 18;
     private static final int ID_PIN_POLICY = 19;
+    private static final int ID_FILE_NAMES = 20;
+    private static final int ID_METADATA = 21;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -179,6 +183,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean enabled = !NovaNotificationPrivacy.isEnabled(currentAccount);
             NovaNotificationPrivacy.setEnabled(currentAccount, enabled);
             ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_FILE_NAMES) {
+            boolean enabled = !NovaFileNames.isEnabled();
+            NovaFileNames.setEnabled(enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_METADATA) {
+            boolean enabled = !NovaOutgoingMetadata.isEnabled();
+            NovaOutgoingMetadata.setEnabled(enabled);
+            ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_HIDE_CONTENT) {
             boolean enabled = !NovaNotificationContent.isEnabled(getContext());
             NovaNotificationContent.setEnabled(getContext(), enabled);
@@ -215,10 +227,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
             NovaUpdateChecker.State state = NovaUpdateChecker.getState();
             if (state == NovaUpdateChecker.State.FOUND) {
                 NovaUpdateChecker.download();
+            } else if (state == NovaUpdateChecker.State.DOWNLOADING) {
+                NovaUpdateChecker.cancel();
             } else if (state == NovaUpdateChecker.State.READY) {
                 NovaUpdateChecker.install(getParentActivity());
-            } else if (state != NovaUpdateChecker.State.CHECKING
-                    && state != NovaUpdateChecker.State.DOWNLOADING) {
+            } else if (state == NovaUpdateChecker.State.FAILED
+                    && NovaUpdateChecker.getRelease() != null) {
+                NovaUpdateChecker.download();
+            } else if (state != NovaUpdateChecker.State.CHECKING) {
                 NovaUpdateChecker.checkNow();
             }
         } else if (item.id == ID_UPDATE_NOTES || item.id == ID_VERSION) {
@@ -356,7 +372,13 @@ public class NovaGramSettingsActivity extends BaseFragment {
             case READY:
                 return LocaleController.getString(R.string.NovaUpdateReady);
             case FAILED:
-                return LocaleController.getString(R.string.NovaUpdateFailed);
+                // Two different failures wear one state, and saying that
+                // checking went wrong when the check succeeded and the
+                // download did not sends the user looking in the wrong place.
+                return LocaleController.getString(
+                        NovaUpdateChecker.getRelease() != null
+                                ? R.string.NovaUpdateDownloadFailed
+                                : R.string.NovaUpdateFailed);
             default:
                 return LocaleController.getString(R.string.NovaUpdateCheckNow);
         }
@@ -408,6 +430,12 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.add(Item.check(ID_READ_STATUS, LocaleController.getString(R.string.NovaReadStatusTitle)));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaReadStatusInfo)));
 
+        items.add(Item.header(LocaleController.getString(R.string.NovaFilesHeader)));
+        items.add(Item.check(ID_FILE_NAMES, LocaleController.getString(R.string.NovaFileNamesTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaFileNamesInfo)));
+        items.add(Item.check(ID_METADATA, LocaleController.getString(R.string.NovaMetadataTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaMetadataInfo)));
+
         items.add(Item.header(LocaleController.getString(R.string.NovaSendingHeader)));
         items.add(Item.check(ID_NIGHT_SILENT, LocaleController.getString(R.string.NovaNightSilentTitle)));
         if (NovaPrivacySettings.global(getContext()).isNightSilentEnabled()) {
@@ -452,10 +480,26 @@ public class NovaGramSettingsActivity extends BaseFragment {
         }
     }
 
+    /**
+     * The right-hand half of the row is what pressing it does, so it has to
+     * name the action and not repeat the state. Same three actions as the bar
+     * at the bottom of the chat list and as the desktop settings block.
+     */
     private CharSequence updateStateValue() {
-        return NovaUpdateChecker.getState() == NovaUpdateChecker.State.FOUND
-                ? LocaleController.getString(R.string.NovaUpdateDownload)
-                : "";
+        switch (NovaUpdateChecker.getState()) {
+            case FOUND:
+                return LocaleController.getString(R.string.NovaUpdateDownload);
+            case DOWNLOADING:
+                return LocaleController.getString(R.string.NovaUpdateCancel);
+            case READY:
+                return LocaleController.getString(R.string.NovaUpdateInstall);
+            case FAILED:
+                return NovaUpdateChecker.getRelease() != null
+                        ? LocaleController.getString(R.string.NovaUpdateRetry)
+                        : "";
+            default:
+                return "";
+        }
     }
 
     private String baseVersion() {
@@ -554,6 +598,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaReadStatus.isEnabled(currentAccount);
                 } else if (item.id == ID_PUSH_PREVIEW) {
                     checked = NovaNotificationPrivacy.isEnabled(currentAccount);
+                } else if (item.id == ID_FILE_NAMES) {
+                    checked = NovaFileNames.isEnabled();
+                } else if (item.id == ID_METADATA) {
+                    checked = NovaOutgoingMetadata.isEnabled();
                 } else if (item.id == ID_HIDE_CONTENT) {
                     checked = NovaNotificationContent.isEnabled(getContext());
                 } else if (item.id == ID_NIGHT_SILENT) {

@@ -13,6 +13,7 @@ import android.util.SparseArray;
 
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLObject;
+import org.telegram.messenger.novagram.privacy.NovaFileNames;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.LaunchActivity;
@@ -964,7 +965,14 @@ public class FileLoader extends BaseController {
                             saveCustomPath = true;
                         }
                     } else if (!TextUtils.isEmpty(getDocumentFileName(document)) && canSaveAsFile(parentObject)) {
-                        storeFileName = getDocumentFileName(document);
+                        // NovaGram: the one branch that writes a file under the
+                        // name its sender chose. Everything else Telegram
+                        // caches is already named after the data centre and the
+                        // document id and says nothing. Safe to rename because
+                        // the real path is recorded in pathSaveData below, so
+                        // every reader finds the file through the database and
+                        // not by rebuilding the name.
+                        storeFileName = NovaFileNames.mask(getDocumentFileName(document));
                         File newDir = getDirectory(MEDIA_DIR_FILES);
                         if (newDir != null) {
                             storeDir = newDir;

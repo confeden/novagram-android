@@ -1815,6 +1815,62 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
     private final boolean ALPHA_PROPERTY_WORKAROUND = Build.VERSION.SDK_INT == 28;
     private float alphaInternal = 1f;
 
+    /**
+     * NovaGram: this message was written by a member muted in this chat. Set by
+     * ChatActivityAdapter.onBindViewHolder before setMessageObject, because the
+     * cell has no way of asking about the chat it is in.
+     */
+    public boolean novaMutedSender;
+    /**
+     * The size of a collapsed row, the same for every message whatever it hid.
+     * A row whose height still followed the content would say how much there
+     * was to see, which is half of what the collapsing is for.
+     */
+    private static final int NOVA_MUTED_AVATAR_SIZE = 30;
+    private final int NOVA_MUTED_ROW_HEIGHT = AndroidUtilities.dp(NOVA_MUTED_AVATAR_SIZE + 8);
+    /**
+     * The dimming of a muted member's message. A field of our own rather than
+     * View.setAlpha, because ChatListItemAnimator.restoreTransitionParams()
+     * resets the view alpha to 1 after every list animation.
+     */
+    private float novaMutedAlpha = 1f;
+    /** Which of the two layouts the cell currently holds, see setMessageContent. */
+    private boolean novaCollapsedBuilt;
+    private StaticLayout novaMutedLayout;
+    private int novaMutedWidth;
+    /** A member of a collapsed album other than the first: no row of its own. */
+    private boolean novaMutedGroupHidden;
+
+    /** Whether this message is currently shown as the one collapsed line. */
+    public boolean isNovaCollapsed() {
+        return novaMutedSender
+                && currentMessageObject != null
+                && !currentMessageObject.novaMutedExpanded;
+    }
+
+    /**
+     * What the collapsed line says. Deliberately not the sender's name: the
+     * point of muting someone is that their name stops catching the eye, and a
+     * row that spells it out every time defeats that. The avatar beside the row
+     * still answers "who" for anyone who looks.
+     */
+    private CharSequence novaMutedStubText(MessageObject messageObject) {
+        return LocaleController.getString(R.string.NovaMutedMessage);
+    }
+
+    private void setNovaMutedAlpha(float alpha) {
+        if (novaMutedAlpha == alpha) {
+            return;
+        }
+        novaMutedAlpha = alpha;
+        invalidate();
+        // The avatar, the name and the time are drawn by ChatActivity, not by
+        // the cell, and they read the alpha from getAlpha() below.
+        if (getParent() instanceof View) {
+            ((View) getParent()).invalidate();
+        }
+    }
+
     public final TransitionParams transitionParams = new TransitionParams();
     private boolean edited;
     private boolean imageDrawn;
@@ -4930,7 +4986,17 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         lastTouchY = getEventY(event);
         backgroundDrawable.setTouchCoords(lastTouchX, lastTouchY);
 
-        boolean result = checkSpoilersMotionEvent(event, 0);
+        // NovaGram: nothing inside a collapsed line is touchable. The content
+        // is not drawn, but the bounds of a photo, a link or a button survive
+        // from the layout this cell had before it was recycled, and a tap
+        // meant to unfold the line would open the photo viewer instead. Only
+        // the chain below is skipped: the avatar block after it still runs, so
+        // the way into the menu that turns muting off stays where it was, and
+        // an untouched tap falls through to the list as "unfold this one".
+        final boolean novaCollapsed = isNovaCollapsed();
+        boolean result = false;
+        if (!novaCollapsed) {
+        result = checkSpoilersMotionEvent(event, 0);
 
         if (!result) {
             result = checkTextBlockMotionEvent(event);
@@ -5105,6 +5171,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 resetPressedLink(-1);
             }
         }
+        } // NovaGram: end of the chain skipped for a collapsed line.
         updateRadialProgressBackground();
         if (!disallowLongPress && result && event.getAction() == MotionEvent.ACTION_DOWN) {
             startCheckLongPress();
@@ -5348,6 +5415,14 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     invalidate();
                 }
             }
+        }
+        // NovaGram: a collapsed line consumes nothing but its own avatar. The
+        // blocks above still recognise regions of the layout this cell carried
+        // before it was collapsed - the bubble background among them - and any
+        // one of them claiming the tap would keep it from reaching the list,
+        // where it is read as "unfold this message".
+        if (novaCollapsed && !avatarPressed) {
+            return false;
         }
         return result;
     }
@@ -6753,7 +6828,15 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         mediaSpoilerRevealProgress = 0f;
         TLRPC.Message newReply = messageObject.hasValidReplyMessageObject() ? messageObject.replyMessageObject.messageOwner : null;
         boolean messageIdChanged = currentMessageObject == null || currentMessageObject.getId() != messageObject.getId();
-        boolean messageChanged = currentMessageObject != messageObject || messageObject.forceUpdate || (isRoundVideo && isPlayingRound != (MediaController.getInstance().isPlayingMessage(currentMessageObject) && delegate != null && !delegate.keyboardIsOpened()));
+        // NovaGram: collapsed and ordinary are two different layouts, and the
+        // switch between them is not visible in anything upstream compares
+        // here - the rule lives outside the message. Without this the cell can
+        // be handed a message it already holds, keep the layout of the picture
+        // it is no longer allowed to draw, and end up an empty bubble the size
+        // of the screen.
+        boolean novaCollapsedWanted = novaMutedSender && !messageObject.novaMutedExpanded;
+        boolean messageChanged = currentMessageObject != messageObject || messageObject.forceUpdate || novaCollapsedWanted != novaCollapsedBuilt || (isRoundVideo && isPlayingRound != (MediaController.getInstance().isPlayingMessage(currentMessageObject) && delegate != null && !delegate.keyboardIsOpened()));
+        novaCollapsedBuilt = novaCollapsedWanted;
         boolean dataChanged = currentMessageObject != null && currentMessageObject.getId() == messageObject.getId() && lastSendState == MessageObject.MESSAGE_SEND_STATE_EDITING && messageObject.isSent() ||
                 currentMessageObject == messageObject && (isUserDataChanged() || photoNotSet) ||
                 lastPostAuthor != messageObject.messageOwner.post_author ||
@@ -7321,7 +7404,88 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 drawCommentNumber = false;
             }
 
-            if (messageObject.type == MessageObject.TYPE_JOINED_CHANNEL) {
+            // NovaGram: cleared before the chain below, so that only the one
+            // branch that wants the collapsed line has to set it.
+            novaMutedLayout = null;
+            setNovaMutedAlpha(1f);
+            // NovaGram: a muted member's message collapses to one dimmed line
+            // carrying only the sender's name. Built like the expired story
+            // branch below - its own height, everything else switched off - and
+            // deliberately without setMessageObjectInternal(), so that no name,
+            // reply or forward layout is created and namesOffset stays zero.
+            if (novaMutedSender && !messageObject.novaMutedExpanded) {
+                drawBackground = true;
+                // An album is one message per cell upstream, and left alone it
+                // would collapse into as many rows as it has pictures. The cell
+                // is taken out of its group so that it lays out and draws like
+                // a single message; the rows other than the first are given no
+                // height at all, so the album becomes the one row it should be.
+                novaMutedGroupHidden = currentMessagesGroup != null
+                        && currentMessagesGroup.findPrimaryMessageObject() != messageObject;
+                currentMessagesGroup = null;
+                currentPosition = null;
+                // Inline keyboards are not drawn either, and their reserved
+                // height would otherwise be subtracted from a row that no
+                // longer has it, pushing the bubble and the time above the top
+                // edge of the cell and onto the message before it.
+                keyboardHeight = 0;
+                substractBackgroundHeight = 0;
+                CharSequence stub = novaMutedStubText(messageObject);
+                // The same envelope the text branch below computes, minus the
+                // padding of the bubble. Only a first name goes in here, so the
+                // exact figure matters little; what matters is that it cannot
+                // grow past the screen.
+                int available = Math.max(AndroidUtilities.dp(40),
+                        Math.min(getParentWidth(), AndroidUtilities.displaySize.y)
+                                - AndroidUtilities.dp(120));
+                stub = TextUtils.ellipsize(stub, Theme.chat_msgTextPaint, available, TextUtils.TruncateAt.END);
+                novaMutedLayout = new StaticLayout(stub, Theme.chat_msgTextPaint, available,
+                        Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+                novaMutedWidth = novaMutedLayout.getLineCount() > 0
+                        ? (int) Math.ceil(novaMutedLayout.getLineWidth(0))
+                        : 0;
+                measureTime(messageObject);
+                backgroundWidth = novaMutedWidth + timeWidth + AndroidUtilities.dp(31);
+                totalHeight = novaMutedGroupHidden ? 0 : NOVA_MUTED_ROW_HEIGHT;
+                // The sender is resolved here because this branch deliberately
+                // skips setMessageObjectInternal(), which is where upstream
+                // does it. Two things depend on it: the avatar is the person's
+                // own rather than an empty circle, and currentUser is what the
+                // cell hands to didLongPressUserAvatar - without it the menu
+                // that turns muting off would not open on a collapsed row, and
+                // the only way back would be to unfold the message first.
+                long novaFromId = messageObject.getFromChatId();
+                if (novaFromId > 0) {
+                    TLRPC.User novaFrom = MessagesController.getInstance(currentAccount)
+                            .getUser(novaFromId);
+                    if (novaFrom != null) {
+                        currentUser = novaFrom;
+                        avatarDrawable.setInfo(currentAccount, novaFrom);
+                        avatarImage.setForUserOrChat(novaFrom, avatarDrawable, null,
+                                LiteMode.isEnabled(LiteMode.FLAGS_CHAT),
+                                VectorAvatarThumbDrawable.TYPE_SMALL, false);
+                    }
+                }
+                drawName = false;
+                drawForwardedName = false;
+                hasReplyQuote = false;
+                isReplyQuote = false;
+                isReplyTaskOrPollOption = false;
+                replyNameLayout = null;
+                replyTextLayout = null;
+                drawSummaryReply = false;
+                forwardedNameLayout[0] = null;
+                forwardedNameLayout[1] = null;
+                drawPhotoImage = false;
+                hasLinkPreview = false;
+                drawCommentButton = false;
+                drawSideButton = 0;
+                namesOffset = 0;
+                // Reactions were built a few hundred lines above, before this
+                // branch could say it wants nothing drawn.
+                reactionsLayoutInBubble.setMessage(null, false, false, resourcesProvider);
+                setNovaMutedAlpha(0.5f);
+            } else if (messageObject.type == MessageObject.TYPE_JOINED_CHANNEL) {
                 drawBackground = true;
                 drawForwardedName = false;
                 hasReplyQuote = false;
@@ -10943,6 +11107,14 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     totalHeight += dp(16);
                 }
             }
+            // NovaGram: the height is pinned last, after every adjustment the
+            // tail above makes for pinned corners, comments and the time that
+            // did not fit. Those adjustments are what made collapsed rows come
+            // out different heights - the row was already one line, but each
+            // one carried a couple of pixels of whatever it was hiding.
+            if (novaMutedSender && !messageObject.novaMutedExpanded) {
+                totalHeight = NOVA_MUTED_ROW_HEIGHT;
+            }
             if (!drawPhotoImage) {
                 photoImage.setImageBitmap((Drawable) null);
                 clearBlurredImage(blurredPhotoImage);
@@ -13661,6 +13833,16 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             resultHeight = botDraftHeightController.getOverrideMeasureHeight(currentMessageObject, normHeight);
         }
 
+        // NovaGram: the height of a collapsed row is decided here, by the same
+        // live question drawContent asks, and not by whatever the last layout
+        // pass left in totalHeight. The two used to disagree: setMessageContent
+        // does not run when the cell is handed a message it already holds, so a
+        // message with media kept the height of its picture while the picture
+        // itself was no longer drawn - an empty bubble the size of a screen.
+        if (isNovaCollapsed()) {
+            resultHeight = novaMutedGroupHidden ? 0 : NOVA_MUTED_ROW_HEIGHT;
+        }
+
         additionalPaddingHeight = Math.max(0, resultHeight - normHeight);
 
         setMeasuredDimension(
@@ -13802,7 +13984,13 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             }
 
             if (isAvatarVisible) {
-                avatarImage.setImageCoords(dp(currentMessageObject.isRepostPreview ? 15 : 6), avatarImage.getImageY(), dp(currentMessageObject.isRepostPreview ? 36 : 42), dp(currentMessageObject.isRepostPreview ? 36 : 42));
+                // NovaGram: the collapsed line is shorter than the ordinary
+                // avatar, so the avatar shrinks with it - otherwise a 42dp
+                // circle would climb over the message above.
+                final int novaAvatarSize = isNovaCollapsed()
+                        ? NOVA_MUTED_AVATAR_SIZE
+                        : (currentMessageObject.isRepostPreview ? 36 : 42);
+                avatarImage.setImageCoords(dp(currentMessageObject.isRepostPreview ? 15 : 6), avatarImage.getImageY(), dp(novaAvatarSize), dp(novaAvatarSize));
             }
 
             if (currentMessageObject.type == MessageObject.TYPE_EXTENDED_MEDIA_PREVIEW && currentUnlockString != null) {
@@ -14249,6 +14437,27 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     public void drawContent(Canvas canvas, boolean preview) {
         if (preview != (currentMessageObject != null && currentMessageObject.preview)) {
+            return;
+        }
+        // NovaGram: the collapsed line of a muted member replaces the content
+        // entirely. Returning here keeps every layout the branch in
+        // setMessageContent left null from ever being read.
+        if (isNovaCollapsed()) {
+            if (novaMutedLayout != null && !novaMutedGroupHidden) {
+                canvas.save();
+                // Centred in the row rather than pinned near its top: the row
+                // is a fixed height and the text is not, so a constant offset
+                // drifts with the chat font size.
+                final int novaTextTop = Math.max(0,
+                        (NOVA_MUTED_ROW_HEIGHT - novaMutedLayout.getHeight()) / 2);
+                canvas.translate(
+                        getCurrentBackgroundLeft() + AndroidUtilities.dp(isAvatarVisible ? 17 : 11) + getExtraTextX(),
+                        novaTextTop);
+                Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextIn));
+                Theme.chat_msgTextPaint.linkColor = getThemedColor(Theme.key_chat_messageLinkIn);
+                novaMutedLayout.draw(canvas);
+                canvas.restore();
+            }
             return;
         }
         boolean newPart = needNewVisiblePart && currentMessageObject.type == MessageObject.TYPE_TEXT, hasSpoilers = hasSpoilers();
@@ -20104,7 +20313,12 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             }
         }
 
-        if (alphaInternal != 1.0f) {
+        // NovaGram: novaMutedAlpha rides the same layer. Without it the cell's
+        // own content would stay opaque everywhere except API 28, where
+        // alphaInternal is the only path - the view alpha is never set for it,
+        // because the list animator resets that after every animation.
+        final float novaEffectiveAlpha = alphaInternal * novaMutedAlpha;
+        if (novaEffectiveAlpha != 1.0f) {
             int top = 0;
             int left = 0;
             int bottom = getMeasuredHeight();
@@ -20131,7 +20345,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 bottom = (int) (parentHeight - getY());
             }
             rect.set(left, top, right, bottom);
-            canvas.saveLayerAlpha(rect, (int) (255 * alphaInternal), Canvas.ALL_SAVE_FLAG);
+            canvas.saveLayerAlpha(rect, (int) (255 * novaEffectiveAlpha), Canvas.ALL_SAVE_FLAG);
         }
         boolean clipContent = false;
         if (transitionParams.animateBackgroundBoundsInner && currentBackgroundDrawable != null && !isRoundVideo && (currentMessageObject == null || !currentMessageObject.sendPreview)) {
@@ -20524,7 +20738,9 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
         }
 
         if ((drawBackground || transitionParams.animateDrawBackground) && currentBackgroundDrawable != null && (currentPosition == null || isDrawSelectionBackground() && (currentMessageObject.isMusic() || currentMessageObject.isDocument())) && !(enterTransitionInProgress && !currentMessageObject.isVoice())) {
-            float alphaInternal = this.alphaInternal;
+            // NovaGram: novaMutedAlpha dims the bubble too. Applied here and not
+            // through getAlpha(), which is only consulted when the parent draws.
+            float alphaInternal = this.alphaInternal * novaMutedAlpha;
             if (fromParent) {
                 alphaInternal *= getAlpha();
             }
@@ -27788,10 +28004,13 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     @Override
     public float getAlpha() {
+        // NovaGram: novaMutedAlpha folded in here rather than kept separate,
+        // because this is what ChatActivity asks when it draws the avatar, the
+        // name and the time for this cell - they have to dim with it.
         if (ALPHA_PROPERTY_WORKAROUND) {
-            return alphaInternal;
+            return alphaInternal * novaMutedAlpha;
         }
-        return super.getAlpha();
+        return super.getAlpha() * novaMutedAlpha;
     }
 
     @Override

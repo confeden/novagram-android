@@ -66,6 +66,7 @@ import androidx.core.graphics.drawable.IconCompat;
 
 import com.google.common.collect.Lists;
 
+import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
 import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.support.LongSparseIntArray;
@@ -1083,6 +1084,17 @@ public class NotificationsController extends BaseController implements Notificat
                     }
                     continue;
                 }
+                // NovaGram: a member muted in this chat never raises a
+                // notification of any kind. Dropped here, at the top of the
+                // loop, rather than at one of the builders below: everything
+                // downstream - the shade, the badge, the popup, Android Auto,
+                // the wear entry - is fed from the lists this loop fills, so a
+                // gate anywhere later would have to be repeated in each of
+                // them. The unread counter in the chat list is untouched, which
+                // is deliberate: the message is muted, not hidden.
+                if (NovaMutedMembers.isMutedMessage(currentAccount, messageObject)) {
+                    continue;
+                }
                 if (messageObject.isStoryPush) {
                     long date = messageObject.messageOwner == null ? System.currentTimeMillis() : messageObject.messageOwner.date * 1000L;
                     long dialogId = messageObject.getDialogId();
@@ -1574,6 +1586,15 @@ public class NotificationsController extends BaseController implements Notificat
                         continue;
                     }
                     MessageObject messageObject = new MessageObject(currentAccount, message, false, false);
+                    // NovaGram: the twin of the gate in processNewMessages. This
+                    // path rebuilds the whole notification list out of the
+                    // database - at every start of the process, and again on
+                    // every refresh of the dialog list - so without it a muted
+                    // member's message that was silenced once comes back with
+                    // sound the next time the application starts.
+                    if (NovaMutedMembers.isMutedMessage(currentAccount, messageObject)) {
+                        continue;
+                    }
                     if (isPersonalMessage(messageObject)) {
                         personalCount++;
                     }
@@ -1644,6 +1665,11 @@ public class NotificationsController extends BaseController implements Notificat
             if (push != null) {
                 for (int a = 0; a < push.size(); a++) {
                     MessageObject messageObject = push.get(a);
+                    // NovaGram: same gate. These come from the stored push
+                    // stubs, which can predate the rule.
+                    if (NovaMutedMembers.isMutedMessage(currentAccount, messageObject)) {
+                        continue;
+                    }
                     int mid = messageObject.getId();
                     if (pushMessagesDict.indexOfKey(mid) >= 0) {
                         continue;
@@ -4770,7 +4796,13 @@ public class NotificationsController extends BaseController implements Notificat
             }
 
             boolean hasCallback = false;
-            if (!AndroidUtilities.needShowPasscode() && !SharedConfig.isWaitingForPasscodeEnter && lastMessageObject.getDialogId() == 777000) {
+            // NovaGram: the labels of these buttons come from the message, so
+            // they carry its content past the composers. "Yes, it was me" and
+            // "No" under a hidden text tell the reader what the text said. A
+            // notification with no actions is already a state upstream reaches
+            // on its own, right next to this, when a passcode is set.
+            if (!NovaNotificationContent.isEnabled()
+                    && !AndroidUtilities.needShowPasscode() && !SharedConfig.isWaitingForPasscodeEnter && lastMessageObject.getDialogId() == 777000) {
                 if (lastMessageObject.messageOwner.reply_markup != null) {
                     ArrayList<TLRPC.TL_keyboardButtonRow> rows = lastMessageObject.messageOwner.reply_markup.rows;
                     for (int a = 0, size = rows.size(); a < size; a++) {
@@ -5684,7 +5716,14 @@ public class NotificationsController extends BaseController implements Notificat
                 copyIntent.setAction("org.telegram.messenger.ACTION_COPY_CODE");
                 copyIntent.putExtra("text", copybutton.copy_text);
                 PendingIntent copyPendingIntent = PendingIntent.getBroadcast(ApplicationLoader.applicationContext, internalId, copyIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                NotificationCompat.Action copyAction = new NotificationCompat.Action.Builder(R.drawable.msg_copy, copybutton.text, copyPendingIntent)
+                // NovaGram: copybutton.text is written by the sender, so with
+                // hiding on it is replaced by a local word. The action itself
+                // stays - copy_text is not drawn anywhere, and losing the way
+                // to copy a login code would be a different promise.
+                CharSequence copyLabel = NovaNotificationContent.isEnabled()
+                        ? LocaleController.getString(R.string.Copy)
+                        : copybutton.text;
+                NotificationCompat.Action copyAction = new NotificationCompat.Action.Builder(R.drawable.msg_copy, copyLabel, copyPendingIntent)
                         .setShowsUserInterface(false)
                         .build();
                 builder.addAction(copyAction);
@@ -5707,7 +5746,10 @@ public class NotificationsController extends BaseController implements Notificat
                 builder.setLargeIcon(avatarBitmap);
             }
 
-            if (!AndroidUtilities.needShowPasscode(false) && !SharedConfig.isWaitingForPasscodeEnter) {
+            // NovaGram: same as the twin block in showOrUpdateNotification -
+            // the button labels are written by whoever sent the message.
+            if (!NovaNotificationContent.isEnabled()
+                    && !AndroidUtilities.needShowPasscode(false) && !SharedConfig.isWaitingForPasscodeEnter) {
                 if (rows != null) {
                     for (int r = 0, rc = rows.size(); r < rc; r++) {
                         TLRPC.TL_keyboardButtonRow row = rows.get(r);
@@ -6089,6 +6131,28 @@ public class NotificationsController extends BaseController implements Notificat
      */
     public void updateServerNotificationsSettings(
             long dialogId, long topicId, boolean post, Runnable onConfirmed) {
+        updateServerNotificationsSettings(dialogId, topicId, post, null, onConfirmed);
+    }
+
+    /**
+     * NovaGram: {@code novaShowPreviews} is non-null only for the background
+     * sweep of per-dialog preview exceptions. It carries two meanings, and both
+     * matter.
+     *
+     * <p>The value to send is passed rather than re-read, so that a sweep spread
+     * over several seconds cannot send one thing and record another.</p>
+     *
+     * <p>And a background request must not carry fields nobody asked it to
+     * change. When the user edits a dialog's notifications, every field below
+     * reflects a screen they were just looking at; when the sweep speaks, the
+     * only field it knows anything about is {@code show_previews}. The sound in
+     * particular is not stored at all on the path most dialogs arrive by
+     * (setSettingsForDialog), so sending it would replace a ringtone chosen on
+     * another device with the default - for a dialog the user never touched.
+     */
+    public void updateServerNotificationsSettings(
+            long dialogId, long topicId, boolean post,
+            Boolean novaShowPreviews, Runnable onConfirmed) {
         if (post) {
             getNotificationCenter().postNotificationName(NotificationCenter.notificationsSettingsUpdated);
         }
@@ -6105,11 +6169,19 @@ public class NotificationsController extends BaseController implements Notificat
         // NovaGram: while the switch is on the server hears "no previews" for
         // every scope, so it never puts the text of a message into push. The
         // local preference keeps deciding what is drawn on this device.
-        req.settings.show_previews = NovaNotificationPrivacy.serverShowPreviews(
-                currentAccount, preferences.getBoolean("content_preview_" + key, true));
+        req.settings.show_previews = (novaShowPreviews != null)
+                ? novaShowPreviews
+                : NovaNotificationPrivacy.serverShowPreviews(
+                        currentAccount,
+                        preferences.getBoolean("content_preview_" + key, true));
 
-        req.settings.flags |= 2;
-        req.settings.silent = preferences.getBoolean("silent_" + key, false);
+        // NovaGram: the sweep leaves silence alone unless this client has a
+        // stored answer for it. Sending the default would write a field into a
+        // server-side exception that never had one.
+        if (novaShowPreviews == null || preferences.contains("silent_" + key)) {
+            req.settings.flags |= 2;
+            req.settings.silent = preferences.getBoolean("silent_" + key, false);
+        }
 
         if (preferences.contains("stories_" + key)) {
             req.settings.flags |= 64;
@@ -6128,22 +6200,28 @@ public class NotificationsController extends BaseController implements Notificat
 
         long soundDocumentId = preferences.getLong("sound_document_id_" + NotificationsController.getSharedPrefKey(dialogId, topicId), 0);
         String soundPath =  preferences.getString("sound_path_" + NotificationsController.getSharedPrefKey(dialogId, topicId), null);
-        req.settings.flags |= 8;
-        if (soundDocumentId != 0) {
-            TLRPC.TL_notificationSoundRingtone ringtoneSound = new TLRPC.TL_notificationSoundRingtone();
-            ringtoneSound.id = soundDocumentId;
-            req.settings.sound = ringtoneSound;
-        } else if (soundPath != null) {
-            if (soundPath.equalsIgnoreCase("NoSound")) {
-                req.settings.sound = new TLRPC.TL_notificationSoundNone();
+        // NovaGram: the sweep sends a sound only when this client actually
+        // stores one. The dialog list path never stores it, so for most dialogs
+        // the branch below would fall through to notificationSoundDefault and
+        // wipe a ringtone the user set on another device.
+        if (novaShowPreviews == null || soundDocumentId != 0 || soundPath != null) {
+            req.settings.flags |= 8;
+            if (soundDocumentId != 0) {
+                TLRPC.TL_notificationSoundRingtone ringtoneSound = new TLRPC.TL_notificationSoundRingtone();
+                ringtoneSound.id = soundDocumentId;
+                req.settings.sound = ringtoneSound;
+            } else if (soundPath != null) {
+                if (soundPath.equalsIgnoreCase("NoSound")) {
+                    req.settings.sound = new TLRPC.TL_notificationSoundNone();
+                } else {
+                    TLRPC.TL_notificationSoundLocal localSound = new TLRPC.TL_notificationSoundLocal();
+                    localSound.title = preferences.getString("sound_" + NotificationsController.getSharedPrefKey(dialogId, topicId), null);
+                    localSound.data = soundPath;
+                    req.settings.sound = localSound;
+                }
             } else {
-                TLRPC.TL_notificationSoundLocal localSound = new TLRPC.TL_notificationSoundLocal();
-                localSound.title = preferences.getString("sound_" + NotificationsController.getSharedPrefKey(dialogId, topicId), null);
-                localSound.data = soundPath;
-                req.settings.sound = localSound;
+                req.settings.sound = new TLRPC.TL_notificationSoundDefault();
             }
-        } else {
-            req.settings.sound = new TLRPC.TL_notificationSoundDefault();
         }
         if (topicId != 0 && dialogId != getUserConfig().getClientUserId()) {
             TLRPC.TL_inputNotifyForumTopic topicPeer = new TLRPC.TL_inputNotifyForumTopic();

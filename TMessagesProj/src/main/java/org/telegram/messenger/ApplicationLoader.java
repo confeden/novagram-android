@@ -44,6 +44,7 @@ import org.telegram.ui.Components.ForegroundDetector;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaDecoyAccount;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
+import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
@@ -297,6 +298,10 @@ public class ApplicationLoader extends Application {
             NovaAutoDelete.start();
             // Restores which dialogs withhold read receipts.
             NovaReadStatus.start();
+            // Restores who is muted in which chat. Started here rather than
+            // when a chat opens, because the notification gate asks about it
+            // long before any chat is on screen.
+            NovaMutedMembers.start();
             // Tells the server to keep message text out of push if it has not
             // been told yet. The switch is on by default, so a default nobody
             // ever sends would be a promise that is not kept.

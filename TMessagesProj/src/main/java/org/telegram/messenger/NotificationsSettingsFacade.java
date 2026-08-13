@@ -6,6 +6,7 @@ import static org.telegram.messenger.NotificationsController.TYPE_REACTIONS_STOR
 
 import android.content.SharedPreferences;
 
+import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.NotificationsSoundActivity;
@@ -18,6 +19,24 @@ public class NotificationsSettingsFacade {
     public final static String PROPERTY_CONTENT_PREVIEW = "content_preview_";
     public final static String PROPERTY_SILENT  = "silent_";
     public final static String PROPERTY_STORIES_NOTIFY = "stories_";
+
+    /**
+     * NovaGram: the per-dialog {@code show_previews} as the server holds it.
+     *
+     * <p>Deliberately not {@link #PROPERTY_CONTENT_PREVIEW}: that one is the
+     * user's own choice made on this phone and decides what is drawn here.
+     * This one answers a different question - whether the server has a
+     * per-dialog permission to put the text of a message into a push payload,
+     * possibly set from another device. Upstream throws that answer away, which
+     * left the fork resending every dialog it had ever touched and still blind
+     * to the exceptions it had not.</p>
+     *
+     * <p>Three-valued on purpose. Absent means the dialog has no settings of its
+     * own and is answered for by its scope; the field alone cannot say that,
+     * because when bit 0 of the flags is missing {@code show_previews} keeps its
+     * Java default of {@code false} and would read as an exception.</p>
+     */
+    public final static String PROPERTY_SERVER_PREVIEW = "novagram_server_preview_";
 
     private final int currentAccount;
 
@@ -40,6 +59,8 @@ public class NotificationsSettingsFacade {
                 .remove(PROPERTY_CONTENT_PREVIEW + key)
                 .remove(PROPERTY_SILENT + key)
                 .remove(PROPERTY_STORIES_NOTIFY + key)
+                .remove(PROPERTY_SERVER_PREVIEW + key)
+                .remove(NovaNotificationPrivacy.dialogPushedKey(key))
                 .apply();
 
     }
@@ -116,6 +137,13 @@ public class NotificationsSettingsFacade {
             } else {
                 editor.remove(PROPERTY_STORIES_NOTIFY + key);
             }
+            // NovaGram: remember what the server holds for this dialog, see
+            // PROPERTY_SERVER_PREVIEW. Bit 0 is the only thing that separates
+            // "this dialog has an exception" from "the field was not on the
+            // wire at all"; without it every dialog would read as an exception
+            // that forbids previews, and the sweep would find nothing to do.
+            NovaNotificationPrivacy.rememberServerPreview(
+                    editor, currentAccount, notify_settings, key);
 
             TLRPC.Dialog dialog = null;
             if (topicId == 0) {
@@ -177,6 +205,11 @@ public class NotificationsSettingsFacade {
             }
             applySoundSettings(notify_settings.android_sound, editor, dialogId, topicId, 0, false);
             editor.apply();
+            // NovaGram: after apply(), so what the sweep reads is already on
+            // disk. This is the moment the desktop fork acts on too - a dialog
+            // whose settings arrive after the start-up sweep would otherwise
+            // keep letting the text into push until the next launch.
+            NovaNotificationPrivacy.scheduleDialogSweep(currentAccount);
             if (updated) {
                 AndroidUtilities.runOnUIThread(() -> {
                     NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.notificationsSettingsUpdated);
@@ -262,8 +295,22 @@ public class NotificationsSettingsFacade {
         }
     }
 
+    /**
+     * Only ever called with dialogs that came straight out of a server answer -
+     * the four call sites in MessagesController are the dialog list past the
+     * cache branch, the dialog reset, the pinned dialogs and the pinned remote
+     * filter. That matters for NovaGram below: a dialog rebuilt from the local
+     * database carries {@code flags == 0} and only a mute time, and taking that
+     * for "the server has no exception here" would throw away what was known.
+     */
     public void setSettingsForDialog(SharedPreferences.Editor editor, TLRPC.Dialog dialog, TLRPC.PeerNotifySettings notify_settings) {
         long dialogId = MessageObject.getPeerId(dialog.peer);
+
+        // NovaGram: see PROPERTY_SERVER_PREVIEW. This is the path most dialogs
+        // arrive by, so leaving it out would mean learning the exceptions one
+        // opened chat at a time.
+        NovaNotificationPrivacy.rememberServerPreview(
+                editor, currentAccount, dialog.notify_settings, String.valueOf(dialogId));
 
         if ((dialog.notify_settings.flags & 2) != 0) {
             editor.putBoolean(PROPERTY_SILENT + dialogId, dialog.notify_settings.silent);

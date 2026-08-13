@@ -63,6 +63,7 @@ import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLObject;
 import org.telegram.messenger.novagram.privacy.NovaNightSilent;
+import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_iv;
@@ -9178,6 +9179,13 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 extension = null;
             }
         }
+        // NovaGram: the one route that uploads the picked bytes exactly as they
+        // are. Everything below reads the returned path — the name, the size,
+        // the extension and the upload itself — so a cleaned copy is enough,
+        // and the copy keeps the original file name so the recipient sees no
+        // difference. Photographs sent as photographs do not come through here
+        // and are re-encoded anyway.
+        path = NovaOutgoingMetadata.sanitizeDocument(path);
         final File f = new File(path);
         if (!f.exists() || f.length() == 0) {
             return ERROR_TYPE_UNSUPPORTED;

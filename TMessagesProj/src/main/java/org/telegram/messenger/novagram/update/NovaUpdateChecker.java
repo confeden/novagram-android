@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 
@@ -15,6 +16,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -50,7 +53,7 @@ public final class NovaUpdateChecker {
      * from the package, so the whole tag has to be written down here and bumped
      * together with the bases.
      */
-    public static final String RELEASE_TAG = "v7.0.9.1/12.9.2.1";
+    public static final String RELEASE_TAG = "v7.0.9.2/12.9.2.2";
 
     private static final String MANIFEST_URL =
             "https://raw.githubusercontent.com/confeden/nova_updates/main/Novagram_android.json";
@@ -64,6 +67,21 @@ public final class NovaUpdateChecker {
     private static final int MAX_MANIFEST_BYTES = 64 * 1024;
     private static final int MAX_PACKAGE_BYTES = 512 * 1024 * 1024;
     private static final int TIMEOUT_MS = 20 * 1000;
+
+    /**
+     * The same twenty seconds as the manifest. A long timeout is the wrong
+     * tool: it makes a broken transfer sit there looking alive. What makes a
+     * download survive a connection that breaks every few megabytes is keeping
+     * the bytes and continuing from them.
+     */
+    private static final int DOWNLOAD_TIMEOUT_MS = 20 * 1000;
+
+    /**
+     * How many times a download may continue by itself after breaking. Only
+     * attempts that actually moved forward count, so this bounds pieces, not
+     * retries of nothing.
+     */
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 40;
 
     public enum State {
         IDLE,
@@ -81,12 +99,15 @@ public final class NovaUpdateChecker {
         public final String url;
         public final String sha256;
         public final String releaseUrl;
+        /** Zero when the manifest does not carry it; then no size is shown. */
+        public final long size;
 
-        Release(String version, String url, String sha256, String releaseUrl) {
+        Release(String version, String url, String sha256, String releaseUrl, long size) {
             this.version = version;
             this.url = url;
             this.sha256 = sha256;
             this.releaseUrl = releaseUrl;
+            this.size = size;
         }
     }
 
@@ -102,6 +123,29 @@ public final class NovaUpdateChecker {
     private static volatile int progress;
     private static volatile File downloaded;
     private static volatile boolean busy;
+    private static volatile boolean cancelRequested;
+
+    /** The connection a download is reading from, so cancel() can close it. */
+    private static volatile HttpURLConnection active;
+
+    /**
+     * What earlier attempts of the current release managed to fetch. Kept so a
+     * download that broke near the end continues instead of starting over: on
+     * the kind of connection this fork is used over, fifty megabytes in one
+     * unbroken run is the exception, not the rule.
+     */
+    private static volatile byte[] partial;
+    private static volatile String partialVersion;
+
+    /** Whether the last answer was a 206, i.e. only the tail that was asked for. */
+    private static volatile boolean lastPartial;
+
+    /** Consecutive automatic continuations of the current download. */
+    private static volatile int attempts;
+
+    /** Not an error: told apart from a real failure by its own type. */
+    private static final class Cancelled extends Exception {
+    }
 
     private NovaUpdateChecker() {
     }
@@ -159,12 +203,17 @@ public final class NovaUpdateChecker {
 
     private static void setState(State value) {
         state = value;
-        ArrayList<Listener> copy;
-        synchronized (LOCK) {
-            copy = new ArrayList<>(listeners);
-        }
+        // The list is read again inside the posted runnable, not snapshotted
+        // here. runOnUIThread always posts, so a listener that unregistered in
+        // between - a settings screen closed while a download reports its
+        // percent a hundred times - would otherwise still be called, on a
+        // destroyed fragment whose context is already gone.
         AndroidUtilities.runOnUIThread(() -> {
-            for (Listener listener : copy) {
+            final ArrayList<Listener> current;
+            synchronized (LOCK) {
+                current = new ArrayList<>(listeners);
+            }
+            for (Listener listener : current) {
                 listener.onNovaUpdateStateChanged();
             }
         });
@@ -186,7 +235,36 @@ public final class NovaUpdateChecker {
         preferences(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
         if (enabled) {
             checkNow();
+        } else {
+            stop();
         }
+    }
+
+    /**
+     * Forgets the release that was found and stops a download in progress. The
+     * bar at the bottom of the chat list is drawn from the state, so without
+     * this a release found before the switch was turned off would go on
+     * offering itself — and its button would still reach GitHub — from a client
+     * that was told not to look. The desktop half does exactly the same.
+     */
+    public static void stop() {
+        // Raised only while something is actually in flight. Raised
+        // unconditionally it would latch: nothing lowers it except the start of
+        // the next download, and the manifest read tests the same flag, so the
+        // next check would be thrown away and the client would stop looking
+        // for good.
+        if (busy) {
+            cancelRequested = true;
+        }
+        // Half a downloaded package goes with it: the user asked this to stop,
+        // not to be remembered.
+        partial = null;
+        partialVersion = null;
+        attempts = 0;
+        release = null;
+        downloaded = null;
+        progress = 0;
+        setState(State.IDLE);
     }
 
     /**
@@ -214,15 +292,28 @@ public final class NovaUpdateChecker {
             return;
         }
         busy = true;
+        cancelRequested = false;
         setState(State.CHECKING);
         Utilities.globalQueue.postRunnable(() -> {
             try {
                 byte[] body = read(MANIFEST_URL, MAX_MANIFEST_BYTES, null);
                 applyManifest(context, new String(body, "UTF-8"));
             } catch (Throwable e) {
-                FileLog.e(e);
-                setState(State.FAILED);
+                if (cancelRequested) {
+                    // The switch was turned off while the manifest was on its
+                    // way. stop() has already set the state.
+                    setState(State.IDLE);
+                } else {
+                    FileLog.e(e);
+                    // A check that failed must not leave behind the release an
+                    // earlier one found: the bar and the settings row tell a
+                    // failed download from a failed check by whether a release
+                    // is known, and a stale one would label the wrong thing.
+                    release = null;
+                    setState(State.FAILED);
+                }
             } finally {
+                cancelRequested = false;
                 busy = false;
             }
         });
@@ -234,7 +325,11 @@ public final class NovaUpdateChecker {
         String url = object.optString("url", "");
         String sha256 = object.optString("sha256", "").toLowerCase();
         String releaseUrl = object.optString("release_url", "");
+        // Added to the manifest after the first releases, so it may be absent.
+        // The update bar then shows no size rather than a wrong one.
+        long size = object.optLong("size", 0L);
         if (version.length() == 0) {
+            release = null;
             setState(State.FAILED);
             return;
         }
@@ -242,10 +337,12 @@ public final class NovaUpdateChecker {
         // It is a file in a repository, and a repository can be edited by more
         // people than the one who signs the releases.
         if (url.length() > 0 && !url.startsWith(DOWNLOAD_PREFIX)) {
+            release = null;
             setState(State.FAILED);
             return;
         }
         if (releaseUrl.length() > 0 && !releaseUrl.startsWith(PROJECT_URL)) {
+            release = null;
             setState(State.FAILED);
             return;
         }
@@ -259,7 +356,7 @@ public final class NovaUpdateChecker {
             release = null;
             setState(State.UP_TO_DATE);
         } else {
-            release = new Release(version, url, sha256, releaseUrl);
+            release = new Release(version, url, sha256, releaseUrl, size);
             setState(State.FOUND);
         }
     }
@@ -276,32 +373,109 @@ public final class NovaUpdateChecker {
             return;
         }
         busy = true;
+        cancelRequested = false;
+        if (!target.version.equals(partialVersion)) {
+            partial = null;
+            partialVersion = target.version;
+        }
         progress = 0;
         setState(State.DOWNLOADING);
         Utilities.globalQueue.postRunnable(() -> {
+            boolean again = false;
+            final int held = (partial != null) ? partial.length : 0;
+            final java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
             try {
-                byte[] body = read(target.url, MAX_PACKAGE_BYTES, value -> {
+                read(target.url, MAX_PACKAGE_BYTES, value -> {
                     progress = value;
                     setState(State.DOWNLOADING);
-                });
-                if (!hexDigest(body).equals(target.sha256)) {
+                }, held, DOWNLOAD_TIMEOUT_MS, sink);
+                keep(sink);
+                if (!hexDigest(partial).equals(target.sha256)) {
+                    // Not the release it claims to be: a truncated tail, a
+                    // mixed-up resume, a changed file. Keeping it would make
+                    // every later attempt continue from the same wrong bytes.
+                    partial = null;
+                    attempts = 0;
                     setState(State.FAILED);
                     return;
                 }
-                File file = store(body, target.version);
+                File file = store(partial, target.version);
                 if (file == null) {
+                    attempts = 0;
                     setState(State.FAILED);
                     return;
                 }
                 downloaded = file;
+                partial = null;
+                partialVersion = null;
+                attempts = 0;
                 setState(State.READY);
             } catch (Throwable e) {
-                FileLog.e(e);
-                setState(State.FAILED);
+                keep(sink);
+                if (cancelRequested) {
+                    // Asked for, not broken. What arrived is kept, so pressing
+                    // the button again asks for the rest of it. release is null
+                    // when the stop came from the switch, and then there is
+                    // nothing to go back to.
+                    setState(release != null ? State.FOUND : State.IDLE);
+                } else if (partial != null
+                        && partial.length > held
+                        && ++attempts < MAX_DOWNLOAD_ATTEMPTS) {
+                    // The attempt moved forward, so it is worth repeating at
+                    // once: on a connection that breaks every few megabytes the
+                    // file only ever arrives in pieces, and asking the user to
+                    // press the button forty times is not offering the feature.
+                    again = true;
+                } else {
+                    FileLog.e(e);
+                    attempts = 0;
+                    setState(State.FAILED);
+                }
             } finally {
+                cancelRequested = false;
                 busy = false;
             }
+            if (again) {
+                download();
+            }
         });
+    }
+
+    /** Appends what an attempt delivered, or replaces when it was not a tail. */
+    private static void keep(java.io.ByteArrayOutputStream sink) {
+        final byte[] got = sink.toByteArray();
+        if (got.length == 0) {
+            return;
+        }
+        partial = (lastPartial && partial != null) ? concat(partial, got) : got;
+    }
+
+    /**
+     * Stops a download in progress. The official update bar offers this while
+     * downloading, and a client that cannot stop a download it started on a
+     * metered connection is worse than one that never offered it.
+     */
+    public static void cancel() {
+        if (state == State.DOWNLOADING) {
+            cancelRequested = true;
+            // The flag alone is only read between two reads from the socket. A
+            // stalled connection would sit in read() until the twenty second
+            // timeout, and the user would watch a "stopping" that does not
+            // stop. Closing the connection makes the blocked read return now.
+            final HttpURLConnection connection = active;
+            if (connection != null) {
+                // On its own thread: the download holds the global queue, so
+                // anything posted there would wait for the very read it is
+                // meant to unblock, and disconnect() may touch the socket,
+                // which the main thread is not allowed to do.
+                new Thread(connection::disconnect).start();
+            }
+        }
+    }
+
+    /** The verified package waiting to be installed, or null. */
+    public static File getDownloadedFile() {
+        return downloaded;
     }
 
     /**
@@ -330,44 +504,115 @@ public final class NovaUpdateChecker {
         void report(int percent);
     }
 
+    /**
+     * The proxy the user chose for Telegram, whenever it is one a plain HTTPS
+     * request can use. Without this the update check goes out directly while
+     * everything else in the client goes through the proxy — and where the
+     * manifest host is blocked, that is the difference between an update the
+     * user can install and one they never hear about.
+     *
+     * <p>Honest boundary, the same one the desktop half carries: an MTProto
+     * proxy cannot carry this request at all. It speaks Telegram's protocol
+     * and nothing else, so a client whose only way out is an MTProto proxy
+     * will fail the check — visibly, on the twenty second timeout.</p>
+     */
+    private static Proxy proxy() {
+        try {
+            if (!SharedConfig.isProxyEnabled()) {
+                return Proxy.NO_PROXY;
+            }
+            SharedConfig.ProxyInfo info = SharedConfig.currentProxy;
+            if (info == null
+                    || info.address == null
+                    || info.address.length() == 0
+                    || (info.secret != null && info.secret.length() > 0)) {
+                // A secret means MTProto, which is of no use here.
+                return Proxy.NO_PROXY;
+            }
+            return new Proxy(
+                    Proxy.Type.SOCKS,
+                    new InetSocketAddress(info.address, info.port));
+        } catch (Throwable e) {
+            FileLog.e(e);
+            return Proxy.NO_PROXY;
+        }
+    }
+
     private static byte[] read(String url, int limit, Progress progress) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        read(url, limit, progress, 0, TIMEOUT_MS, out);
+        return out.toByteArray();
+    }
+
+    /**
+     * Writes into a sink the caller owns rather than returning bytes, so that
+     * a transfer which breaks halfway leaves what it managed to deliver in the
+     * caller's hands. Returning them only on success is why resuming did not
+     * work: everything already received was thrown away with the exception.
+     */
+    private static void read(
+            String url,
+            int limit,
+            Progress progress,
+            int resumeFrom,
+            int timeout,
+            java.io.ByteArrayOutputStream out) throws Exception {
+        lastPartial = false;
+        HttpURLConnection connection =
+                (HttpURLConnection) new URL(url).openConnection(proxy());
         try {
             if (!(connection instanceof HttpsURLConnection)) {
                 // Plain HTTP would let anyone on the path choose what NovaGram
                 // installs. The manifest is checked the same way.
                 throw new IllegalArgumentException("only https is accepted");
             }
-            connection.setConnectTimeout(TIMEOUT_MS);
-            connection.setReadTimeout(TIMEOUT_MS);
+            connection.setConnectTimeout(timeout);
+            connection.setReadTimeout(timeout);
+            if (resumeFrom > 0) {
+                // The asset host answers 206 and sends only the tail; one that
+                // cannot answers 200 with the whole file, and the caller
+                // replaces what it held. The digest decides either way.
+                connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+            }
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("User-Agent", "NovaGram");
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                throw new IllegalStateException("http " + connection.getResponseCode());
+            active = connection;
+            final int code = connection.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK
+                    && code != HttpURLConnection.HTTP_PARTIAL) {
+                throw new IllegalStateException("http " + code);
             }
-            int total = connection.getContentLength();
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            lastPartial = (code == HttpURLConnection.HTTP_PARTIAL);
+            // Only what is already held counts towards the shown percentage
+            // when the server sent just the tail; when it ignored the Range and
+            // sent everything, the held bytes are about to be replaced.
+            final long base = lastPartial ? resumeFrom : 0;
+            final int total = connection.getContentLength();
+            final long full = (total > 0) ? (base + total) : 0;
             InputStream stream = connection.getInputStream();
             byte[] buffer = new byte[64 * 1024];
             int read;
-            int done = 0;
+            long done = 0;
             int reported = -1;
             while ((read = stream.read(buffer)) > 0) {
+                if (cancelRequested) {
+                    throw new Cancelled();
+                }
                 done += read;
-                if (done > limit) {
+                if (base + done > limit) {
                     throw new IllegalStateException("answer is too large");
                 }
                 out.write(buffer, 0, read);
-                if (progress != null && total > 0) {
-                    int percent = (int) ((done * 100L) / total);
+                if (progress != null && full > 0) {
+                    int percent = (int) (((base + done) * 100L) / full);
                     if (percent != reported) {
                         reported = percent;
                         progress.report(percent);
                     }
                 }
             }
-            return out.toByteArray();
         } finally {
+            active = null;
             connection.disconnect();
         }
     }
@@ -403,6 +648,13 @@ public final class NovaUpdateChecker {
                 }
             }
         }
+    }
+
+    private static byte[] concat(byte[] head, byte[] tail) {
+        byte[] result = new byte[head.length + tail.length];
+        System.arraycopy(head, 0, result, 0, head.length);
+        System.arraycopy(tail, 0, result, head.length, tail.length);
+        return result;
     }
 
     private static String hexDigest(byte[] body) throws Exception {

@@ -114,3 +114,9 @@
 # Use -keep to explicitly keep any other classes shrinking would remove
 -dontoptimize
 -dontobfuscate
+# NovaGram: the update bar at the bottom of the chat list is built only through
+# upstream's IUpdateLayout hook and is instantiated from the application module,
+# so nothing inside this library refers to it and R8 removes it - after which
+# the reference from ApplicationLoaderImpl cannot be resolved and the release
+# build fails outright.
+-keep class org.telegram.messenger.novagram.update.NovaUpdateLayout { *; }

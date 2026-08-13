@@ -160,8 +160,9 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.FlagSecureReason;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaAutoDeleteStore;
+import org.telegram.messenger.novagram.privacy.NovaChatMenu;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
-import org.telegram.messenger.novagram.privacy.NovaEraseEvidence;
+import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.HashtagSearchController;
@@ -1700,6 +1701,7 @@ public class ChatActivity extends BaseFragment implements
     private final static int nova_auto_delete_chat = 75;
     private final static int nova_erase_evidence = 76;
     private final static int nova_read_status = 77;
+    private final static int nova_proxy = 78;
 
     private final static int id_chat_compose_panel = 1000;
 
@@ -1898,6 +1900,26 @@ public class ChatActivity extends BaseFragment implements
                     msg.toggleChannelRecommendations();
                     msg.forceUpdate = true;
                     ((ChatMessageCell) view).forceResetMessageObject();
+                    view.requestLayout();
+                    if (position >= 0) {
+                        chatAdapter.notifyItemChanged(position);
+                    }
+                    return;
+                }
+            }
+            // NovaGram: a tap on the collapsed line of a muted member unfolds
+            // that one message and does nothing else. Placed before createMenu
+            // so the ordinary "tapped a message" behaviour never reaches it.
+            if (view instanceof ChatMessageCell) {
+                final ChatMessageCell cell = (ChatMessageCell) view;
+                final MessageObject msg = cell.getMessageObject();
+                if (msg != null && cell.isNovaCollapsed()) {
+                    msg.novaMutedExpanded = true;
+                    msg.forceUpdate = true;
+                    // Same reason as in novaSetMemberMuted: the text blocks
+                    // were never built while the message was a single line.
+                    msg.resetLayout();
+                    cell.forceResetMessageObject();
                     view.requestLayout();
                     if (position >= 0) {
                         chatAdapter.notifyItemChanged(position);
@@ -3720,18 +3742,7 @@ public class ChatActivity extends BaseFragment implements
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
             @Override
             public boolean canOpenMenu() {
-                // Called right before the menu opens, which is the only moment
-                // the per-chat entries can be sure of their own state.
-                updateNovaAutoDeleteItem();
-                if (novaReadStatusItem != null) {
-                    // The written down rule, not the careful answer given while
-                    // the rules are still being read: an entry that offers to
-                    // turn off something that is not on would be a lie.
-                    novaReadStatusItem.setVisibility(
-                            NovaReadStatus.isRuleHidden(currentAccount, getDialogId())
-                                    ? View.VISIBLE
-                                    : View.GONE);
-                }
+                prepareNovaChatMenuItems();
                 return true;
             }
 
@@ -3869,18 +3880,14 @@ public class ChatActivity extends BaseFragment implements
                     }
                     showDialog(AlertsCreator.createTTLAlert(getParentActivity(), currentEncryptedChat, themeDelegate).create());
                 } else if (id == nova_auto_delete_chat) {
-                    NovaAutoDelete engine = NovaAutoDelete.getInstance(currentAccount);
-                    // The opposite of the current effect is stored explicitly,
-                    // so gaining or losing admin rights later cannot silently
-                    // reverse what was chosen here.
-                    engine.setRule(getDialogId(), engine.appliesTo(getDialogId())
-                            ? NovaAutoDeleteStore.RULE_NEVER
-                            : NovaAutoDeleteStore.RULE_ALWAYS);
+                    NovaChatMenu.toggleAutoDelete(currentAccount, getDialogId());
                     updateNovaAutoDeleteItem();
                 } else if (id == nova_read_status) {
                     showNovaReadStatusDialog();
                 } else if (id == nova_erase_evidence) {
                     showNovaEraseEvidenceDialog();
+                } else if (id == nova_proxy) {
+                    presentFragment(new ProxyListActivity());
                 } else if (id == clear_history || id == delete_chat || id == auto_delete_timer) {
                     if (getParentActivity() == null) {
                         return;
@@ -4015,6 +4022,12 @@ public class ChatActivity extends BaseFragment implements
                         }
                         openAttachMenu();
                     });
+                    // The same menu, opened by a different door. This path never
+                    // reaches canOpenMenu(): attachItem has no submenu of its
+                    // own, so ActionBarMenu sends the click here instead. It is
+                    // not a corner case - as soon as there is text in the input
+                    // field, attachItem is what the three dots become.
+                    prepareNovaChatMenuItems();
                     headerItem.toggleSubMenu(attach, attachItem.createView());
                 } else if (id == bot_help) {
                     getSendMessagesHelper().sendMessage(SendMessagesHelper.SendMessageParams.of("/help", dialog_id, null, null, null, false, null, null, null, true, 0, 0, null, false));
@@ -4494,7 +4507,14 @@ public class ChatActivity extends BaseFragment implements
             // Hidden in the decoy: these two are the only chat menu entries that
             // no Telegram build has, and the menu is where anyone looking for
             // traces of another client would look first.
-            if (!isTopic && !ChatObject.isMonoForum(currentChat)
+            //
+            // Rooms are deliberately not excluded, unlike "Clear history" right
+            // above. Both rules are stored per chat and a room shares its
+            // group's identifier, so they work here exactly as they do in the
+            // group; the auto-delete entry says "in this group" when it is
+            // opened from a room, because "here" would read as "in this room"
+            // and would be false for every other room next to it.
+            if (!ChatObject.isMonoForum(currentChat)
                     && currentEncryptedChat == null
                     && !NovaDecoyState.isActive()) {
                 if (!UserObject.isUserSelf(currentUser)) {
@@ -4506,8 +4526,15 @@ public class ChatActivity extends BaseFragment implements
                     novaReadStatusItem = headerItem.lazilyAddSubItem(nova_read_status, R.drawable.msg_markread,
                             LocaleController.getString(R.string.NovaReadStatusTitle));
                 }
-                headerItem.lazilyAddSubItem(nova_erase_evidence, R.drawable.msg_delete,
-                        LocaleController.getString(R.string.NovaEraseEvidence));
+                // Not inside a room. Erase evidence walks the whole chat and
+                // would destroy the user's messages in every room of the
+                // group, while its own confirmation says "in this chat". It
+                // stays in the group's own menu — the room list, where that
+                // sentence is true.
+                if (!isTopic) {
+                    headerItem.lazilyAddSubItem(nova_erase_evidence, R.drawable.msg_delete,
+                            LocaleController.getString(R.string.NovaEraseEvidence));
+                }
             }
             boolean addedSettings = false;
             if (!isTopic) {
@@ -6400,7 +6427,16 @@ public class ChatActivity extends BaseFragment implements
                             }
                         }
                         if (updateVisibility) {
-                            imageReceiver.setImageY(y - dp(44));
+                            // NovaGram: taken from the height the cell actually
+                            // gave the avatar rather than from a constant. The
+                            // collapsed line of a muted member shrinks it, and
+                            // the two figures have to agree in both directions:
+                            // a constant here left the avatar hanging below the
+                            // message the moment the line was unfolded again.
+                            final int novaAvatarHeight = (int) imageReceiver.getImageHeight();
+                            imageReceiver.setImageY(novaAvatarHeight > 0
+                                    ? (y - novaAvatarHeight - dp(2))
+                                    : (y - dp(44)));
                         }
                         if (mcell.shouldDrawAlphaLayer()) {
                             imageReceiver.setAlpha((1f - getSideMenuAlpha()) * mcell.getAlpha());
@@ -6420,6 +6456,14 @@ public class ChatActivity extends BaseFragment implements
                             canvas.translate(dp(24) * getSideMenuAlpha(), 0f);
                         }
                         imageReceiver.draw(canvas);
+                        // NovaGram: a thin cross over the blank circle of a muted
+                        // member. The mark has to answer "why is this one line"
+                        // without becoming the thing the eye lands on - that is
+                        // the whole point of the feature - so it is two hairlines
+                        // at a third of the opacity, not a badge.
+                        if (mcell instanceof ChatMessageCell && ((ChatMessageCell) mcell).isNovaCollapsed()) {
+                            drawNovaMutedCross(canvas, imageReceiver, mcell.getAlpha());
+                        }
                         canvas.restore();
 
                         if (!replaceAnimation && child.getTranslationY() != 0) {
@@ -12818,6 +12862,42 @@ public class ChatActivity extends BaseFragment implements
         }
     }
 
+    /**
+     * Everything the NovaGram entries of the chat menu have to do right before
+     * that menu becomes visible. Called from both doors into it: canOpenMenu(),
+     * and the chat_menu_attach branch, which opens the very same menu without
+     * ever going through canOpenMenu().
+     */
+    private void prepareNovaChatMenuItems() {
+        // The only moment the per-chat entries can be sure of their own state.
+        updateNovaAutoDeleteItem();
+        if (novaReadStatusItem != null) {
+            // The written down rule, not the careful answer given while the
+            // rules are still being read: an entry that offers to turn off
+            // something that is not on would be a lie.
+            novaReadStatusItem.setVisibility(
+                    NovaReadStatus.isRuleHidden(currentAccount, getDialogId())
+                            ? View.VISIBLE
+                            : View.GONE);
+        }
+        // The proxy shortcut is added here rather than in createView because it
+        // has to be the last entry, and createView is not the last thing to add
+        // one: checkLeaveChannelButton() appends "Leave channel" once the chat
+        // info arrives. Lazy entries are laid out in the order they were added,
+        // and this runs right before that, after everything else.
+        //
+        // Hidden in the decoy for the same reason as the entries above: no
+        // Telegram build has a proxy entry in a chat menu, and this menu is the
+        // first place anyone looking for traces of another client would open.
+        if (headerItem != null
+                && chatMode != MODE_EDIT_BUSINESS_LINK
+                && !NovaDecoyState.isActive()
+                && !headerItem.hasSubItem(nova_proxy)) {
+            headerItem.lazilyAddSubItem(nova_proxy, R.drawable.outline_shield_plain_24,
+                    LocaleController.getString(R.string.NovaProxyMenu));
+        }
+    }
+
     private void updateNovaAutoDeleteItem() {
         if (novaAutoDeleteItem == null) {
             return;
@@ -12827,11 +12907,12 @@ public class ChatActivity extends BaseFragment implements
         if (!enabled) {
             return;
         }
-        boolean applies = NovaAutoDelete.getInstance(currentAccount).appliesTo(getDialogId());
-        novaAutoDeleteItem.setText(LocaleController.getString(applies
-                ? R.string.NovaAutoDeleteChatOff
-                : R.string.NovaAutoDeleteChatOn));
-        novaAutoDeleteItem.setIcon(applies ? R.drawable.msg_cancel : R.drawable.msg_clear);
+        novaAutoDeleteItem.setText(NovaChatMenu.autoDeleteMenuText(
+                currentAccount,
+                getDialogId(),
+                isTopic));
+        novaAutoDeleteItem.setIcon(
+                NovaChatMenu.autoDeleteMenuIcon(currentAccount, getDialogId()));
     }
 
     private FrameLayout novaReadStatusPanel;
@@ -12927,48 +13008,118 @@ public class ChatActivity extends BaseFragment implements
         }
     }
 
-    private void showNovaEraseEvidenceDialog() {
-        if (getParentActivity() == null) {
+    private Paint novaMutedCrossPaint;
+
+    /**
+     * Draws the mark of a muted member across their avatar: two hairlines,
+     * corner to corner, inset so they stay inside the circle.
+     *
+     * <p>Red because that is what "off" is drawn in everywhere else in the
+     * client, and thin and faint because the function exists to stop this
+     * person from catching the eye. It has to be readable when looked at and
+     * invisible when not.</p>
+     */
+    private void drawNovaMutedCross(Canvas canvas, ImageReceiver receiver, float cellAlpha) {
+        final float left = receiver.getImageX();
+        final float top = receiver.getImageY();
+        final float size = receiver.getImageWidth();
+        if (size <= 0) {
             return;
         }
-        CharSequence[] periods = {
-                LocaleController.getString(R.string.NovaEraseEvidenceDay),
-                LocaleController.getString(R.string.NovaEraseEvidenceWeek),
-                LocaleController.getString(R.string.NovaEraseEvidenceMonth),
-                LocaleController.getString(R.string.NovaEraseEvidenceAll)
-        };
+        if (novaMutedCrossPaint == null) {
+            novaMutedCrossPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            novaMutedCrossPaint.setStyle(Paint.Style.STROKE);
+            novaMutedCrossPaint.setStrokeCap(Paint.Cap.ROUND);
+        }
+        novaMutedCrossPaint.setColor(getThemedColor(Theme.key_text_RedRegular));
+        novaMutedCrossPaint.setStrokeWidth(Math.max(1f, dp(1)));
+        // The canvas carries no layer alpha here - the avatar dims itself
+        // through the image receiver - so this is the whole opacity of the
+        // mark. Just under a half: enough to read when looked at, not enough
+        // to be what the eye lands on.
+        novaMutedCrossPaint.setAlpha((int) (220 * Math.max(0f, Math.min(1f, cellAlpha))));
+        // Inset by a sixth: a chord of the circle rather than its diameter, so
+        // the ends do not touch the rim and the mark reads as drawn on top.
+        final float inset = size / 6f;
+        canvas.drawLine(left + inset, top + inset, left + size - inset, top + size - inset, novaMutedCrossPaint);
+        canvas.drawLine(left + size - inset, top + inset, left + inset, top + size - inset, novaMutedCrossPaint);
+    }
+
+    /** Whether a member of this chat can be muted at all. */
+    private boolean novaCanMuteMembers() {
+        return !NovaDecoyState.isActive()
+                && chatMode == MODE_DEFAULT
+                && currentChat != null
+                && NovaMutedMembers.eligibleChat(currentChat);
+    }
+
+    private boolean novaIsMuted(TLRPC.User user) {
+        return user != null
+                && NovaMutedMembers.isMuted(currentAccount, getDialogId(), user.id);
+    }
+
+    /**
+     * The confirmation behind the avatar menu entry. Two buttons either way,
+     * because the answer to "what will this do" has to be readable before the
+     * thing is done, not after.
+     */
+    private void showNovaMuteMemberDialog(TLRPC.User user) {
+        if (getParentActivity() == null || user == null) {
+            return;
+        }
+        final boolean muted = novaIsMuted(user);
+        final String name = UserObject.getFirstName(user, false);
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
-        builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
-        builder.setItems(periods, (dialog, which) -> confirmNovaEraseEvidence(which, periods[which]));
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        builder.setTitle(LocaleController.getString(
+                muted ? R.string.NovaMuteInChatOff : R.string.NovaMuteInChat));
+        builder.setMessage(LocaleController.formatString(
+                muted ? R.string.NovaMuteInChatOffInfo : R.string.NovaMuteInChatInfo, name));
+        builder.setPositiveButton(
+                LocaleController.getString(
+                        muted ? R.string.NovaMuteInChatDisable : R.string.NovaMuteInChatConfirm),
+                (dialog, which) -> novaSetMemberMuted(user, !muted));
+        builder.setNegativeButton(LocaleController.getString(R.string.NovaMuteInChatBack), null);
         showDialog(builder.create());
     }
 
-    private void confirmNovaEraseEvidence(int period, CharSequence periodName) {
-        if (getParentActivity() == null) {
+    private void novaSetMemberMuted(TLRPC.User user, boolean muted) {
+        if (user == null) {
             return;
         }
-        String message = LocaleController.getString(R.string.NovaEraseEvidenceAbout)
-                + "\n\n"
-                + LocaleController.getString(R.string.NovaEraseEvidenceReactions)
-                + "\n\n"
-                + LocaleController.formatString(
-                        "NovaEraseEvidenceConfirm",
-                        R.string.NovaEraseEvidenceConfirm,
-                        periodName.toString().toLowerCase());
-        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
-        builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
-        builder.setMessage(message);
-        builder.setPositiveButton(
-                LocaleController.getString(R.string.NovaEraseEvidenceDestroy),
-                (dialog, which) -> runNovaEraseEvidence(period));
-        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
-        AlertDialog dialog = builder.create();
-        showDialog(dialog);
-        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
-        if (button != null) {
-            button.setTextColor(getThemedColor(Theme.key_text_RedBold));
+        NovaMutedMembers.setMuted(currentAccount, getDialogId(), user.id, muted);
+        // Rebinding alone is not enough: a cell keeps its layout when it is
+        // handed the same MessageObject back, and the rule lives outside the
+        // object. forceUpdate is what makes setMessageContent run again, and
+        // it has to be set before the adapter is told, because the cell clears
+        // the flag as it consumes it.
+        if (messages != null) {
+            for (int a = 0; a < messages.size(); a++) {
+                MessageObject message = messages.get(a);
+                if (message != null && message.getFromChatId() == user.id) {
+                    message.forceUpdate = true;
+                    // The collapsed branch never builds the text blocks, and
+                    // MessageObject keeps them until it is told they are stale.
+                    // Without this the message comes back from muting with the
+                    // layout of the line it was collapsed into: an empty bubble.
+                    message.resetLayout();
+                    // A message unfolded by hand folds again when the rule is
+                    // put back on; when it is taken off, the flag is spent.
+                    message.novaMutedExpanded = false;
+                }
+            }
         }
+        // Every message of this member changes height, so a repaint is not
+        // enough - the whole visible list has to be laid out again.
+        if (chatAdapter != null) {
+            chatAdapter.notifyDataSetChanged(true);
+        }
+    }
+
+    private void showNovaEraseEvidenceDialog() {
+        // The dialogs themselves live in NovaChatMenu, because the room list of
+        // a group opens TopicsFragment and not this screen, and both have to
+        // offer the same thing.
+        NovaChatMenu.showEraseEvidenceDialog(this, getDialogId());
     }
 
     private final NovaAutoDelete.Listener novaEraseReportListener = dialogId -> {
@@ -13001,37 +13152,6 @@ public class ChatActivity extends BaseFragment implements
                         report.deleted,
                         report.replaced,
                         report.skipped)).show();
-    }
-
-    private void runNovaEraseEvidence(int period) {
-        long dialogId = getDialogId();
-        BulletinFactory.of(this).createSimpleBulletin(
-                R.raw.chats_infotip,
-                LocaleController.getString(R.string.NovaEraseEvidenceCollecting)).show();
-        NovaEraseEvidence.run(currentAccount, dialogId, period, (queued, reactions, complete) -> {
-            if (getParentActivity() == null || fragmentView == null) {
-                return;
-            }
-            CharSequence text;
-            if (!complete) {
-                // The walk stopped early, so part of the period was never seen.
-                // Reporting the same success as a full pass would be a lie
-                // exactly where the user needs the truth.
-                text = LocaleController.formatString(
-                        "NovaEraseEvidencePartial",
-                        R.string.NovaEraseEvidencePartial,
-                        queued);
-            } else if (queued > 0) {
-                text = LocaleController.formatString(
-                        "NovaEraseEvidenceQueued",
-                        R.string.NovaEraseEvidenceQueued,
-                        queued);
-            } else {
-                text = LocaleController.getString(R.string.NovaEraseEvidenceNothing);
-            }
-            BulletinFactory.of(ChatActivity.this)
-                    .createSimpleBulletin(R.raw.chats_infotip, text).show();
-        });
     }
 
     public int getDialogFolderId() {
@@ -37626,6 +37746,11 @@ public class ChatActivity extends BaseFragment implements
                     messageCell.isSavedPreviewChat = chatMode == MODE_SAVED && isInsideContainer;
                     messageCell.isBot = currentUser != null && currentUser.bot;
                     messageCell.isMegagroup = ChatObject.isChannel(currentChat) && currentChat.megagroup;
+                    // NovaGram: the cell cannot ask this itself - it does not
+                    // know which chat it is in. Set before setMessageObject
+                    // below, which is where the collapsed layout is built.
+                    messageCell.novaMutedSender =
+                            NovaMutedMembers.isMutedMessage(currentAccount, message);
                     messageCell.isForum = ChatObject.isForum(currentChat);
                     messageCell.isMonoForum = ChatObject.isMonoForum(currentChat);
                     messageCell.isForumGeneral = ChatObject.isForum(currentChat) && isTopic && getTopicId() == 1;
@@ -39753,7 +39878,10 @@ public class ChatActivity extends BaseFragment implements
             if (isAvatarPreviewerEnabled()) {
                 final boolean enableMention = currentChat != null && (bottomChannelButtonsLayout == null || bottomChannelButtonsLayout.getVisibility() != View.VISIBLE) && (bottomOverlay == null || bottomOverlay.getVisibility() != View.VISIBLE);
                 final boolean enableSearchMessages = currentChat != null && (threadMessageId == 0 || isTopic) && (!ChatObject.isChannel(currentChat) || currentChat.megagroup);
-                final AvatarPreviewer.MenuItem[] menuItems = new AvatarPreviewer.MenuItem[2 + (enableMention ? 1 : 0) + (enableSearchMessages ? 1 : 0)];
+                // NovaGram: the fifth entry, muting this member in this chat.
+                final boolean enableNovaMute = novaCanMuteMembers() && !UserObject.isUserSelf(user);
+                final boolean novaMuted = enableNovaMute && novaIsMuted(user);
+                final AvatarPreviewer.MenuItem[] menuItems = new AvatarPreviewer.MenuItem[2 + (enableMention ? 1 : 0) + (enableSearchMessages ? 1 : 0) + (enableNovaMute ? 1 : 0)];
                 int a = 0;
                 menuItems[a++] = AvatarPreviewer.MenuItem.OPEN_PROFILE;
                 menuItems[a++] = AvatarPreviewer.MenuItem.SEND_MESSAGE;
@@ -39762,6 +39890,11 @@ public class ChatActivity extends BaseFragment implements
                 }
                 if (enableSearchMessages) {
                     menuItems[a++] = AvatarPreviewer.MenuItem.SEARCH_MESSAGES;
+                }
+                if (enableNovaMute) {
+                    menuItems[a++] = novaMuted
+                            ? AvatarPreviewer.MenuItem.NOVA_UNMUTE_IN_CHAT
+                            : AvatarPreviewer.MenuItem.NOVA_MUTE_IN_CHAT;
                 }
                 final TLRPC.UserFull userFull = getMessagesController().getUserFull(user.id);
                 AvatarPreviewer.Data data;
@@ -39788,6 +39921,10 @@ public class ChatActivity extends BaseFragment implements
                             case SEARCH_MESSAGES:
                                 openSearchWithUser(user);
                                 break;
+                            case NOVA_MUTE_IN_CHAT:
+                            case NOVA_UNMUTE_IN_CHAT:
+                                showNovaMuteMemberDialog(user);
+                                break;
                         }
                     });
                     return true;
@@ -39804,6 +39941,15 @@ public class ChatActivity extends BaseFragment implements
                         })
                         .addIf(enableSearchMessages, R.drawable.msg_search, getString(R.string.AvatarPreviewSearchMessages), () -> {
                             openSearchWithUser(user);
+                        })
+                        // NovaGram: last, below everything the stock client puts
+                        // here, and only in a chat with more than two people.
+                        .addIf(novaCanMuteMembers() && !UserObject.isUserSelf(user),
+                                novaIsMuted(user) ? R.drawable.msg_unmute : R.drawable.msg_mute,
+                                getString(novaIsMuted(user)
+                                        ? R.string.NovaMuteInChatOff
+                                        : R.string.NovaMuteInChat), () -> {
+                            showNovaMuteMemberDialog(user);
                         })
                         .setDrawScrim(false)
                         .setGravity(Gravity.LEFT)

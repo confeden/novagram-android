@@ -49,6 +49,7 @@ import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.TelegramMediaSession;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
+import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.tgnet.TLRPC;
 
 import java.io.File;
@@ -255,7 +256,13 @@ public class HomeScreen extends Screen
             body = NotificationsController.getInstance(currentAccount)
                     .getShortStringForMessage(mo, senderName, preview);
         } catch (Throwable t) {
-            body = mo.messageText != null ? mo.messageText.toString() : "";
+            // NovaGram: the composer above is the only thing that knows whether
+            // the text may be shown at all, so when it fails there is no
+            // answer - and the safe answer is the one it gives when it says no.
+            // Reading messageText straight out here was a way past the switch.
+            body = NovaNotificationContent.isEnabled()
+                    ? LocaleController.getString(R.string.Message)
+                    : (mo.messageText != null ? mo.messageText.toString() : "");
         }
         if (body == null) return null;
 

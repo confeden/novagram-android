@@ -46,6 +46,7 @@ public final class NovaEmergencyWipe {
         // recreate both the file and its Keystore key behind the sweep.
         NovaAutoDelete.shutdown();
         NovaReadStatus.shutdown();
+        NovaMutedMembers.shutdown();
 
         NovaDecoyState.arm(target, identity[0], identity[1], identity[2]);
         requestServerLogout();
@@ -141,6 +142,12 @@ public final class NovaEmergencyWipe {
         // were read quietly.
         try {
             NovaReadStatusStore.deleteKey();
+        } catch (Throwable ignored) {
+        }
+        // And for the muted members: that file names the people the user did
+        // not want to hear from, which is the same kind of answer.
+        try {
+            NovaMutedMembersStore.deleteKey();
         } catch (Throwable ignored) {
         }
     }

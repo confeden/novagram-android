@@ -1,10 +1,14 @@
 package org.telegram.messenger.novagram.privacy;
 
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
 import android.content.Context;
 
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.ChatsWidgetProvider;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.NotificationsController;
+import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 
 /**
@@ -28,12 +32,17 @@ import org.telegram.messenger.UserConfig;
  * so hiding at that point covers all of them, including the ones that are easy
  * to forget. Writing a new path would have had to find them all again.</p>
  *
+ * <p>Three surfaces compose the message themselves, past both notification
+ * composers, and each is closed at its own drawing point: the in-app popup
+ * notification, which the popup setting throws on top of the lock screen; the
+ * home screen widget; and the catch branch of the Android Auto composer. The
+ * popup and the widget were left open until 2026-08-10 and the setting's
+ * description said so.</p>
+ *
  * <p>Honest boundaries, written in the setting's description too: the sender
  * avatar inside the expanded messaging view goes with the text, because
- * upstream hangs both on the same flag; the in-app popup notification and the
- * home screen widgets draw the message themselves and are not covered; and
- * nothing here changes what a push payload carried on its way to the device -
- * that is the other switch.</p>
+ * upstream hangs both on the same flag; and nothing here changes what a push
+ * payload carried on its way to the device - that is the other switch.</p>
  */
 public final class NovaNotificationContent {
 
@@ -93,6 +102,7 @@ public final class NovaNotificationContent {
             return;
         }
         redrawShown();
+        redrawWidgets();
     }
 
     /**
@@ -110,6 +120,29 @@ public final class NovaNotificationContent {
             } catch (Throwable e) {
                 FileLog.e(e);
             }
+        }
+    }
+
+    /**
+     * The home screen widget was drawn with the previous answer too, and
+     * nothing would ask it again until a message arrives in one of the dialogs
+     * it lists — which can be hours. Unlike the shade, a widget is on screen
+     * without anyone unlocking anything.
+     */
+    private static void redrawWidgets() {
+        Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            return;
+        }
+        try {
+            AppWidgetManager manager = AppWidgetManager.getInstance(context);
+            int[] ids = manager.getAppWidgetIds(
+                    new ComponentName(context, ChatsWidgetProvider.class));
+            for (int id : ids) {
+                manager.notifyAppWidgetViewDataChanged(id, R.id.list_view);
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
         }
     }
 

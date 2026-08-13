@@ -13765,6 +13765,10 @@ public class MessagesController extends BaseController implements NotificationCe
             }
         }
         editor.apply();
+        // NovaGram: this is where most per-dialog preview exceptions become
+        // known, and the list keeps arriving page by page long after the
+        // start-up sweep. The pass is coalesced, so a burst of pages costs one.
+        NovaNotificationPrivacy.scheduleDialogSweep(currentAccount);
     }
 
     public void reloadMentionsCountForChannel(TLRPC.InputPeer peer, long taskId) {

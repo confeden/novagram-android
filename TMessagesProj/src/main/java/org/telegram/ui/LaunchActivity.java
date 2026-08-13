@@ -146,6 +146,7 @@ import org.telegram.messenger.utils.WindowVisibilityManager;
 import org.telegram.messenger.video.VideoAds;
 import org.telegram.messenger.voip.VideoCapturerDevice;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
+import org.telegram.messenger.novagram.update.NovaUpdateChecker;
 import org.telegram.messenger.voip.VoIPGroupNotification;
 import org.telegram.messenger.voip.VoIPPendingCall;
 import org.telegram.messenger.voip.VoIPPreNotificationService;
@@ -6978,6 +6979,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             return;
         }
         isResumed = true;
+        // NovaGram: the update check has no timer of its own — Android would
+        // not let a background one run reliably anyway — so it is re-armed
+        // here. start() does nothing unless eight hours have really passed
+        // since the last check, so returning to the application ten times in a
+        // row still makes at most one request.
+        NovaUpdateChecker.start();
         pipActivityHandler.onResume();
         if (onResumeStaticCallback != null) {
             onResumeStaticCallback.run();

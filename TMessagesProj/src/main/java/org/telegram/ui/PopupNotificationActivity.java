@@ -50,6 +50,7 @@ import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.ApplicationLoader;
@@ -780,6 +781,12 @@ public class PopupNotificationActivity extends Activity implements NotificationC
         if (popupMessages.size() == 1 && (num < 0 || num >= popupMessages.size())) {
             return null;
         }
+        if (NovaNotificationContent.isEnabled()) {
+            // NovaGram: the labels of these buttons are written by the sender
+            // and would spell out the message the line above is hiding. Null is
+            // the ordinary answer here - most messages carry no buttons at all.
+            return null;
+        }
         if (num == -1) {
             num = popupMessages.size() - 1;
         } else if (num == popupMessages.size()) {
@@ -872,7 +879,15 @@ public class PopupNotificationActivity extends Activity implements NotificationC
         }
         ViewGroup view;
         MessageObject messageObject = popupMessages.get(num);
-        if ((messageObject.type == MessageObject.TYPE_PHOTO || messageObject.type == MessageObject.TYPE_GEO) && !messageObject.isSecretMedia()) {
+        // NovaGram: this screen composes the message itself, past both
+        // notification composers, and the popup setting alone throws it on top
+        // of the lock screen with the screen turned on - which is exactly the
+        // situation the switch exists for. With hiding on, every kind of
+        // message falls into the plain text branch below and gets the same one
+        // line the shade shows: no thumbnail, no map, no voice player. Deciding
+        // that per kind would leave whatever kind is added next uncovered.
+        final boolean novaHideContent = NovaNotificationContent.isEnabled(this);
+        if (!novaHideContent && (messageObject.type == MessageObject.TYPE_PHOTO || messageObject.type == MessageObject.TYPE_GEO) && !messageObject.isSecretMedia()) {
             if (imageViews.size() > 0) {
                 view = imageViews.get(0);
                 imageViews.remove(0);
@@ -952,7 +967,7 @@ public class PopupNotificationActivity extends Activity implements NotificationC
                     imageView.setImage(currentUrl, null, null);
                 }
             }
-        } else if (messageObject.type == MessageObject.TYPE_VOICE) {
+        } else if (!novaHideContent && messageObject.type == MessageObject.TYPE_VOICE) {
             PopupAudioView cell;
             if (audioViews.size() > 0) {
                 view = audioViews.get(0);
@@ -1011,7 +1026,11 @@ public class PopupNotificationActivity extends Activity implements NotificationC
             }
             TextView messageText = view.findViewWithTag(301);
             messageText.setTextSize(TypedValue.COMPLEX_UNIT_SP, SharedConfig.fontSize);
-            messageText.setText(messageObject.messageText);
+            // NovaGram: the same line the notification composers put there when
+            // previews are off, so the popup and the shade say the same thing.
+            messageText.setText(novaHideContent
+                    ? LocaleController.getString(R.string.Message)
+                    : messageObject.messageText);
         }
         if (view.getParent() == null) {
             messageContainer.addView(view);

@@ -182,7 +182,12 @@ public class AvatarPreviewer {
         OPEN_GROUP("OpenGroup2", R.string.OpenGroup2, R.drawable.msg_discussion),
         SEND_MESSAGE("SendMessage", R.string.SendMessage, R.drawable.msg_discussion),
         MENTION("Mention", R.string.Mention, R.drawable.msg_mention),
-        SEARCH_MESSAGES("AvatarPreviewSearchMessages", R.string.AvatarPreviewSearchMessages, R.drawable.msg_search);
+        SEARCH_MESSAGES("AvatarPreviewSearchMessages", R.string.AvatarPreviewSearchMessages, R.drawable.msg_search),
+        // NovaGram: muting one member of this chat. Two entries rather than one
+        // with a changing label, because the enum is static and the label
+        // depends on whether the person is muted already.
+        NOVA_MUTE_IN_CHAT("NovaMuteInChat", R.string.NovaMuteInChat, R.drawable.msg_mute),
+        NOVA_UNMUTE_IN_CHAT("NovaMuteInChatOff", R.string.NovaMuteInChatOff, R.drawable.msg_unmute);
 
         private final String labelKey;
         private final int labelResId;

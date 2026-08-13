@@ -377,6 +377,8 @@ public class NotificationCenter {
     public static final int communitySwitchedCollapsed = totalEvents++;
     /** NovaGram: the rules of the read status hiding were read or changed. */
     public static final int novaReadStatusUpdated = totalEvents++;
+    /** NovaGram: the list of members muted inside a chat was read or changed. */
+    public static final int novaMutedMembersUpdated = totalEvents++;
 
     public static boolean alreadyLogged;
 

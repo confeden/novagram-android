@@ -260,6 +260,13 @@ public class MessageObject {
     public boolean expandedExplanation;
     public boolean forceShowPollResults;
 
+    /**
+     * NovaGram: the user tapped the collapsed line of a muted member's message
+     * and asked to read this one. Deliberately not persisted - it is a choice
+     * about a moment, not a rule, and leaving the chat should collapse it again.
+     */
+    public boolean novaMutedExpanded;
+
     public boolean isSpoilersRevealed;
     public boolean isMediaSpoilersRevealed;
     public boolean isMediaSpoilersRevealedInSharedMedia;
@@ -778,6 +785,10 @@ public class MessageObject {
             }
         }
         isSpoilersRevealed = old.isSpoilersRevealed;
+        // NovaGram: without this an expanded message would fold itself back at
+        // every edit, reaction or view count bump, since those rebuild the
+        // object and the cell copies the stable parts across.
+        novaMutedExpanded = old.novaMutedExpanded;
         messageOwner.replyStory = old.messageOwner.replyStory;
         if (messageOwner.media != null && old.messageOwner.media != null) {
             messageOwner.media.storyItem = old.messageOwner.media.storyItem;

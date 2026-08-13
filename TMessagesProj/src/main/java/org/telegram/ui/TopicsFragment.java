@@ -63,6 +63,9 @@ import org.telegram.messenger.LiteMode;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
+import org.telegram.messenger.novagram.privacy.NovaChatMenu;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.NotificationsController;
@@ -198,6 +201,10 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
     private static final int close_topic_id = 9;
     private static final int restart_topic_id = 10;
     private static final int delete_chat_id = 11;
+    // Fork-only, numbered away from upstream's block so that a new entry
+    // upstream cannot collide with these.
+    private static final int nova_auto_delete_chat = 75;
+    private static final int nova_erase_evidence = 76;
     private static final int hide_id = 12;
     private static final int show_id = 13;
     private static final int boost_group_id = 14;
@@ -218,6 +225,18 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
     private ActionBarMenuSubItem deleteChatSubmenu;
     private ActionBarMenuSubItem boostGroupSubmenu;
     private ActionBarMenuSubItem reportSubmenu;
+    private ActionBarMenuSubItem novaAutoDeleteSubmenu;
+
+    /**
+     * Erase evidence can be started from this screen, and its report arrives
+     * minutes later. Without this the run started here would never say what it
+     * did on the screen that started it.
+     */
+    private final NovaAutoDelete.Listener novaEraseReportListener = dialogId -> {
+        if (dialogId == getDialogId()) {
+            NovaChatMenu.showPendingReport(TopicsFragment.this, dialogId);
+        }
+    };
     private boolean bottomPannelVisible = true;
     private float searchAnimationProgress = 0f;
     private TL_stories.TL_premium_boostsStatus boostsStatus;
@@ -648,6 +667,13 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
                 }
                 TLRPC.TL_forumTopic topic;
                 switch (id) {
+                    case nova_auto_delete_chat:
+                        NovaChatMenu.toggleAutoDelete(currentAccount, -chatId);
+                        updateNovaAutoDeleteItem();
+                        break;
+                    case nova_erase_evidence:
+                        NovaChatMenu.showEraseEvidenceDialog(TopicsFragment.this, -chatId);
+                        break;
                     case toggle_id:
                         getMessagesController().getTopicsController().toggleViewForumAsMessages(chatId, true);
                         finishDialogRightSlidingPreviewOnTransitionEnd = true;
@@ -871,6 +897,19 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
         addMemberSubMenu = other.addSubItem(add_member_id, R.drawable.msg_addcontact, getString(R.string.AddMember));
         boostGroupSubmenu = other.addSubItem(boost_group_id, 0, new RLottieDrawable(R.raw.boosts, "" + R.raw.boosts, AndroidUtilities.dp(24), AndroidUtilities.dp(24)), getString(R.string.BoostingBoostGroupMenu), true, false);
         createTopicSubmenu = other.addSubItem(create_topic_id, R.drawable.msg_topic_create, getString(R.string.CreateTopic));
+        // This screen is the whole reason the fork's per-chat entries used to
+        // be missing from groups with rooms: a group shown as a room list never
+        // opens ChatActivity, and both entries lived only there. A privacy
+        // promise must not depend on how the group is displayed.
+        //
+        // Hidden in the decoy, like everywhere else: no Telegram build has
+        // these, and a chat menu is the first place anyone looking for traces
+        // of another client would open.
+        if (!NovaDecoyState.isActive()) {
+            novaAutoDeleteSubmenu = other.addSubItem(nova_auto_delete_chat, R.drawable.msg_clear, "");
+            other.addSubItem(nova_erase_evidence, R.drawable.msg_delete, getString(R.string.NovaEraseEvidence));
+            updateNovaAutoDeleteItem();
+        }
         reportSubmenu = other.addSubItem(report, R.drawable.msg_report, getString(R.string.ReportChat));
         deleteChatSubmenu = other.addSubItem(delete_chat_id, R.drawable.msg_leave, getString(R.string.LeaveMegaMenu), themeDelegate);
 
@@ -2687,6 +2726,7 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
 
     @Override
     public boolean onFragmentCreate() {
+        NovaAutoDelete.addListener(novaEraseReportListener);
         getMessagesController().loadFullChat(chatId, 0, true);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.storiesUpdated);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.chatWasBoostedByUser);
@@ -2721,6 +2761,7 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
 
     @Override
     public void onFragmentDestroy() {
+        NovaAutoDelete.removeListener(novaEraseReportListener);
         notificationsLocker.unlock();
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.storiesUpdated);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.chatWasBoostedByUser);
@@ -2912,6 +2953,26 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
     @Override
     public long getDialogId() {
         return -chatId;
+    }
+
+    /**
+     * The entry is hidden while auto-deletion is switched off altogether:
+     * offering to turn off something that is not on would be a lie. This is the
+     * group's own menu, so it says "here" and not "in this group".
+     */
+    private void updateNovaAutoDeleteItem() {
+        if (novaAutoDeleteSubmenu == null) {
+            return;
+        }
+        if (!NovaChatMenu.autoDeleteVisible(currentAccount)) {
+            novaAutoDeleteSubmenu.setVisibility(View.GONE);
+            return;
+        }
+        novaAutoDeleteSubmenu.setVisibility(View.VISIBLE);
+        novaAutoDeleteSubmenu.setText(
+                NovaChatMenu.autoDeleteMenuText(currentAccount, getDialogId(), false));
+        novaAutoDeleteSubmenu.setIcon(
+                NovaChatMenu.autoDeleteMenuIcon(currentAccount, getDialogId()));
     }
 
     public void setForwardFromDialogFragment(DialogsActivity dialogsActivity) {
@@ -3895,6 +3956,12 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
     @Override
     public void onResume() {
         super.onResume();
+        // The switch that hides this entry, and the rule that names it, both
+        // live on other screens, so the label can be stale by the time this one
+        // comes back. The report of a finished Erase evidence run waits here
+        // for the same reason.
+        updateNovaAutoDeleteItem();
+        NovaChatMenu.showPendingReport(this, getDialogId());
         getMessagesController().getTopicsController().onTopicFragmentResume(chatId);
         animatedUpdateEnabled = false;
         AndroidUtilities.updateVisibleRows(recyclerListView);

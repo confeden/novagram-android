@@ -16,6 +16,7 @@ import android.widget.RemoteViewsService;
 
 import androidx.core.content.FileProvider;
 
+import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
@@ -78,7 +79,16 @@ class FeedRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory, N
         String name;
 
         RemoteViews rv = new RemoteViews(mContext.getPackageName(), R.layout.feed_widget_item);
-        if (messageObject.type == MessageObject.TYPE_TEXT) {
+        // NovaGram: same reason as ChatsWidgetService. This factory cannot be
+        // reached in the shipped application - both its provider and its
+        // service are commented out in AndroidManifest.xml - and the switch is
+        // honoured here anyway, so that uncommenting them cannot quietly
+        // reopen the hole.
+        final boolean novaHideContent = NovaNotificationContent.isEnabled(mContext);
+        if (novaHideContent) {
+            rv.setTextViewText(R.id.feed_widget_item_text, LocaleController.getString(R.string.Message));
+            rv.setViewVisibility(R.id.feed_widget_item_text, View.VISIBLE);
+        } else if (messageObject.type == MessageObject.TYPE_TEXT) {
             rv.setTextViewText(R.id.feed_widget_item_text, messageObject.messageText);
             rv.setViewVisibility(R.id.feed_widget_item_text, View.VISIBLE);
         } else {
@@ -90,7 +100,7 @@ class FeedRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory, N
             }
         }
 
-        if (messageObject.photoThumbs == null || messageObject.photoThumbs.isEmpty()) {
+        if (novaHideContent || messageObject.photoThumbs == null || messageObject.photoThumbs.isEmpty()) {
             rv.setViewVisibility(R.id.feed_widget_item_image, View.GONE);
         } else {
             TLRPC.PhotoSize size = FileLoader.getClosestPhotoSizeWithSize(messageObject.photoThumbs, AndroidUtilities.getPhotoSize());
