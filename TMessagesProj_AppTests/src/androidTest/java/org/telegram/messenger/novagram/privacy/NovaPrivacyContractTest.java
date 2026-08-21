@@ -58,12 +58,19 @@ public class NovaPrivacyContractTest {
 
     @Test
     public void encryptedDnsOrderAndEndpointsMatchPublicContract() {
-        assertEquals(NovaPrivacyContract.DohProvider.CLOUDFLARE, NovaPrivacyContract.DEFAULT_DOH_ORDER.get(0));
-        assertEquals(NovaPrivacyContract.DohProvider.GOOGLE, NovaPrivacyContract.DEFAULT_DOH_ORDER.get(1));
-        assertEquals(NovaPrivacyContract.DohProvider.ADGUARD, NovaPrivacyContract.DEFAULT_DOH_ORDER.get(2));
-        assertEquals(NovaPrivacyContract.DohProvider.QUAD9, NovaPrivacyContract.DEFAULT_DOH_ORDER.get(3));
+        assertEquals(4, NovaPrivacyContract.DOH_ORDER.size());
+        assertEquals(NovaPrivacyContract.DohProvider.CLOUDFLARE, NovaPrivacyContract.DOH_ORDER.get(0));
+        assertEquals(NovaPrivacyContract.DohProvider.GOOGLE, NovaPrivacyContract.DOH_ORDER.get(1));
+        assertEquals(NovaPrivacyContract.DohProvider.ADGUARD, NovaPrivacyContract.DOH_ORDER.get(2));
+        assertEquals(NovaPrivacyContract.DohProvider.QUAD9, NovaPrivacyContract.DOH_ORDER.get(3));
         assertEquals("https://dns.adguard-dns.com/dns-query",
                 NovaPrivacyContract.DohProvider.ADGUARD.getEndpoint());
+        assertEquals("https://cloudflare-dns.com/dns-query",
+                NovaPrivacyContract.DohProvider.CLOUDFLARE.getEndpoint());
+        assertEquals("https://dns.google/dns-query",
+                NovaPrivacyContract.DohProvider.GOOGLE.getEndpoint());
+        assertEquals("https://dns.quad9.net/dns-query",
+                NovaPrivacyContract.DohProvider.QUAD9.getEndpoint());
     }
 
     private static void expectIllegalArgument(Runnable action) {

@@ -289,6 +289,14 @@ public class VoIPHelper {
 		if (activity == null) {
 			return;
 		}
+		// The gate belongs here and not only in startCall: conference calls
+		// reach the service by their own road, from thirteen places, and while
+		// it was missing a fork that said "calls are off" still placed them —
+		// silently, because the service just stops itself.
+		if (!NovaCallPolicy.areCallsAllowed(activity)) {
+			refuseCall(activity);
+			return;
+		}
 
 		if (VoIPService.getSharedInstance() != null) {
 			VoIPService.getSharedInstance().hangUp(() -> {

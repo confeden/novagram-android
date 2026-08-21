@@ -73,7 +73,17 @@ public final class NovaPrivacyContract {
 
     public static final ScreenshotPolicy DEFAULT_SCREENSHOT_POLICY = ScreenshotPolicy.ADAPTIVE;
     public static final MetadataSanitizationPolicy DEFAULT_METADATA_POLICY = MetadataSanitizationPolicy.STRICT;
-    public static final List<DohProvider> DEFAULT_DOH_ORDER = Collections.unmodifiableList(Arrays.asList(
+
+    /**
+     * The order the encrypted DNS endpoints are tried in. Deliberately not a
+     * default and not a setting: the promise is that this list cannot be
+     * reassigned by the user, by settings, by the system or by the network, and
+     * a stored order would be exactly such a reassignment. It was one until
+     * 2026-08-15, when {@code doh_provider_order} was removed from preferences.
+     * The same four endpoints in the same order are compiled into the desktop
+     * client; if one side changes, both change.
+     */
+    public static final List<DohProvider> DOH_ORDER = Collections.unmodifiableList(Arrays.asList(
             DohProvider.CLOUDFLARE,
             DohProvider.GOOGLE,
             DohProvider.ADGUARD,

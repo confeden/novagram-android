@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    NovaGram: who is allowed to be the encrypted DNS endpoints.
+
+    The base config is upstream behaviour, kept as it was: cleartext stays
+    permitted because the client opens http:// links the user tapped, and the
+    default trust anchors stay in place because a great many people who install
+    a custom CA on their own phone do it on purpose.
+
+    The domain config below is the exception, and it is the point of the file.
+    A network that can present a certificate for cloudflare-dns.com is a network
+    that decides what every name in this client resolves to. Ruling out
+    user-installed anchors for those four hosts means an intercepting proxy ends
+    the connection with a verification error instead of quietly answering in the
+    resolver's place — the error is the correct outcome, not a fault.
+
+    Both the names and their bootstrap addresses are listed. Requests go out to
+    the address with the name carried in SNI and in the certificate check, so
+    which of the two the platform matches on depends on internals that are not
+    documented; listing both is what makes the rule apply either way.
+
+    Boundary, and it is a real one: this covers connections this client makes.
+    A WebView has its own configuration, and names resolved inside a web page or
+    a mini app are resolved by the system, as the setting text says.
+-->
+<network-security-config>
+    <domain-config>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+
+        <domain includeSubdomains="false">cloudflare-dns.com</domain>
+        <domain includeSubdomains="false">1.1.1.1</domain>
+        <domain includeSubdomains="false">1.0.0.1</domain>
+
+        <domain includeSubdomains="false">dns.google</domain>
+        <domain includeSubdomains="false">8.8.8.8</domain>
+        <domain includeSubdomains="false">8.8.4.4</domain>
+
+        <domain includeSubdomains="false">dns.adguard-dns.com</domain>
+        <domain includeSubdomains="false">94.140.14.14</domain>
+        <domain includeSubdomains="false">94.140.15.15</domain>
+
+        <domain includeSubdomains="false">dns.quad9.net</domain>
+        <domain includeSubdomains="false">9.9.9.9</domain>
+        <domain includeSubdomains="false">149.112.112.112</domain>
+    </domain-config>
+</network-security-config>

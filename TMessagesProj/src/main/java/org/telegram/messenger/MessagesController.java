@@ -1832,11 +1832,20 @@ public class MessagesController extends BaseController implements NotificationCe
         }
         scheduleTranscriptionUpdate();
         BuildVars.GOOGLE_AUTH_CLIENT_ID = mainPreferences.getString("googleAuthClientId", BuildVars.GOOGLE_AUTH_CLIENT_ID);
-        if (mainPreferences.contains("dcDomainName2")) {
-            dcDomainName = mainPreferences.getString("dcDomainName2", "apv3.stel.com");
-        } else {
-            dcDomainName = isTest ? "tapv3.stel.com" : "apv3.stel.com";
-        }
+        // NovaGram: pinned, not read back from what the server last said.
+        //
+        // This is the name the client asks a TXT record of when the built-in
+        // datacentre addresses are unreachable — a name the server chooses and
+        // the client then asks somebody about. That is a tracking channel: a
+        // unique name handed to one user identifies that user to whoever holds
+        // the DNS, before any of this fork's promises about the query itself
+        // can help. Pinning also lines the platforms up: on the desktop half it
+        // has always been compiled in.
+        //
+        // The cost, written down honestly: if Telegram moves apv3.stel.com, the
+        // emergency path dies until the next release. The desktop half has
+        // carried exactly that risk from the start.
+        dcDomainName = isTest ? "tapv3.stel.com" : "apv3.stel.com";
         if (mainPreferences.contains("webFileDatacenterId")) {
             webFileDatacenterId = mainPreferences.getInt("webFileDatacenterId", 4);
         } else {
@@ -5744,7 +5753,8 @@ public class MessagesController extends BaseController implements NotificationCe
                 imageSearchBot = config.img_search_username;
             }
             blockedCountry = config.blocked_mode;
-            dcDomainName = config.dc_txt_domain_name;
+            // NovaGram: config.dc_txt_domain_name is deliberately ignored, see
+            // where dcDomainName is set above.
             webFileDatacenterId = config.webfile_dc_id;
             if (config.suggested_lang_code != null) {
                 boolean loadRemote = suggestedLangCode == null || !suggestedLangCode.equals(config.suggested_lang_code);

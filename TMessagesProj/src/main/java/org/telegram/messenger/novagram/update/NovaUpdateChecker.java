@@ -9,6 +9,8 @@ import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.net.NovaDoh;
+import org.telegram.messenger.novagram.net.NovaHttps;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 
 import java.io.File;
@@ -23,6 +25,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSocket;
 
 import org.json.JSONObject;
 
@@ -53,7 +56,7 @@ public final class NovaUpdateChecker {
      * from the package, so the whole tag has to be written down here and bumped
      * together with the bases.
      */
-    public static final String RELEASE_TAG = "v7.0.9.2/12.9.2.2";
+    public static final String RELEASE_TAG = "v7.0.9.3/12.9.2.3";
 
     private static final String MANIFEST_URL =
             "https://raw.githubusercontent.com/confeden/nova_updates/main/Novagram_android.json";
@@ -127,6 +130,9 @@ public final class NovaUpdateChecker {
 
     /** The connection a download is reading from, so cancel() can close it. */
     private static volatile HttpURLConnection active;
+
+    /** The same, for the path that opens its own socket. */
+    private static volatile java.net.Socket activeSocket;
 
     /**
      * What earlier attempts of the current release managed to fetch. Kept so a
@@ -470,6 +476,10 @@ public final class NovaUpdateChecker {
                 // which the main thread is not allowed to do.
                 new Thread(connection::disconnect).start();
             }
+            final java.net.Socket socket = activeSocket;
+            if (socket != null) {
+                new Thread(() -> NovaHttps.close(socket)).start();
+            }
         }
     }
 
@@ -517,25 +527,11 @@ public final class NovaUpdateChecker {
      * will fail the check — visibly, on the twenty second timeout.</p>
      */
     private static Proxy proxy() {
-        try {
-            if (!SharedConfig.isProxyEnabled()) {
-                return Proxy.NO_PROXY;
-            }
-            SharedConfig.ProxyInfo info = SharedConfig.currentProxy;
-            if (info == null
-                    || info.address == null
-                    || info.address.length() == 0
-                    || (info.secret != null && info.secret.length() > 0)) {
-                // A secret means MTProto, which is of no use here.
-                return Proxy.NO_PROXY;
-            }
-            return new Proxy(
-                    Proxy.Type.SOCKS,
-                    new InetSocketAddress(info.address, info.port));
-        } catch (Throwable e) {
-            FileLog.e(e);
-            return Proxy.NO_PROXY;
-        }
+        // One policy for everything that leaves the Telegram network, resolver
+        // included — see NovaDoh.proxyFor(). It also refuses a proxy whose own
+        // name is not resolved yet, which this used to hand straight to
+        // InetSocketAddress, and that constructor resolves through the system.
+        return NovaDoh.proxyFor();
     }
 
     private static byte[] read(String url, int limit, Progress progress) throws Exception {
@@ -558,8 +554,21 @@ public final class NovaUpdateChecker {
             int timeout,
             java.io.ByteArrayOutputStream out) throws Exception {
         lastPartial = false;
+        final Proxy proxy = proxy();
+        if (proxy == Proxy.NO_PROXY) {
+            // No proxy, so this machine is the one that would have to look the
+            // name up — and it is not going to. See readResolved().
+            readResolved(url, limit, progress, resumeFrom, timeout, out, 0);
+            return;
+        }
+        // With a proxy the name is resolved by the proxy, and nothing is looked
+        // up on this device at all — which is what the promise asks for, and is
+        // stricter than doing it ourselves rather than weaker. The code below
+        // is therefore left exactly as it was: in a network where a proxy is
+        // set, the new path does not run, and a working download does not get
+        // to be the place a new HTTP client is tried out for the first time.
         HttpURLConnection connection =
-                (HttpURLConnection) new URL(url).openConnection(proxy());
+                (HttpURLConnection) new URL(url).openConnection(proxy);
         try {
             if (!(connection instanceof HttpsURLConnection)) {
                 // Plain HTTP would let anyone on the path choose what NovaGram
@@ -614,6 +623,115 @@ public final class NovaUpdateChecker {
         } finally {
             active = null;
             connection.disconnect();
+        }
+    }
+
+    /**
+     * The same read, with the name turned into an address here rather than by
+     * the system.
+     *
+     * <p>Redirects are followed by hand on purpose. GitHub sends the download
+     * on to another host, and letting the stack follow a {@code Location} by
+     * name would put the system resolver back into the middle of the one
+     * request this fork promises to keep out of it. Every hop is resolved
+     * again, every hop has to be https, and there are at most five.</p>
+     *
+     * <p>What a redirect carries in its body is not the file, so the partial is
+     * untouched by one and the next hop simply asks for the same range.</p>
+     */
+    private static void readResolved(
+            String url,
+            int limit,
+            Progress progress,
+            int resumeFrom,
+            int timeout,
+            java.io.ByteArrayOutputStream out,
+            int hop) throws Exception {
+        if (hop > 5) {
+            throw new IllegalStateException("too many redirects");
+        }
+        java.net.URI uri = new java.net.URI(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            // Plain HTTP would let anyone on the path choose what NovaGram
+            // installs. The manifest is checked the same way.
+            throw new IllegalArgumentException("only https is accepted");
+        }
+        final String host = uri.getHost();
+        NovaDoh.Answer answer = NovaDoh.resolve(host, NovaDoh.TYPE_A);
+        if (answer.isEmpty()) {
+            // No fall-back to the system resolver, by design: a name that
+            // quietly resolved through the system is the leak this replaces.
+            throw new IllegalStateException("could not resolve " + host + " over secure DNS");
+        }
+        String path = uri.getRawPath();
+        if (path == null || path.length() == 0) {
+            path = "/";
+        }
+        if (uri.getRawQuery() != null) {
+            path = path + "?" + uri.getRawQuery();
+        }
+
+        SSLSocket socket = null;
+        try {
+            socket = NovaHttps.connect(host, answer.first(), Proxy.NO_PROXY, timeout);
+            activeSocket = socket;
+            java.util.Map<String, String> headers = NovaHttps.headers();
+            headers.put("User-Agent", "NovaGram");
+            if (resumeFrom > 0) {
+                // The asset host answers 206 and sends only the tail; one that
+                // cannot answers 200 with the whole file, and the caller
+                // replaces what it held. The digest decides either way.
+                headers.put("Range", "bytes=" + resumeFrom + "-");
+            }
+            OutputStream request = socket.getOutputStream();
+            request.write(NovaHttps.head("GET", host, path, headers));
+            request.flush();
+
+            NovaHttps.Reader reader = NovaHttps.open(socket.getInputStream());
+            final int code = reader.response.code;
+            if (code >= 300 && code < 400 && reader.response.location != null) {
+                final String next = uri.resolve(reader.response.location).toString();
+                NovaHttps.close(socket);
+                socket = null;
+                activeSocket = null;
+                readResolved(next, limit, progress, resumeFrom, timeout, out, hop + 1);
+                return;
+            }
+            if (code != 200 && code != 206) {
+                throw new IllegalStateException("http " + code);
+            }
+            lastPartial = (code == 206);
+            // Only what is already held counts towards the shown percentage
+            // when the server sent just the tail; when it ignored the Range and
+            // sent everything, the held bytes are about to be replaced.
+            final long base = lastPartial ? resumeFrom : 0;
+            final int[] reported = new int[] { -1 };
+            reader.drain(
+                    out,
+                    // What is already held counts towards the cap, exactly as
+                    // it did before: the limit is on the file, not on one leg
+                    // of fetching it.
+                    Math.max(0, limit - base),
+                    base,
+                    (done, total) -> {
+                        if (progress == null || total <= 0) {
+                            return;
+                        }
+                        int percent = (int) ((done * 100L) / total);
+                        if (percent != reported[0]) {
+                            reported[0] = percent;
+                            progress.report(percent);
+                        }
+                    },
+                    () -> {
+                        if (cancelRequested) {
+                            throw new Cancelled();
+                        }
+                        return false;
+                    });
+        } finally {
+            activeSocket = null;
+            NovaHttps.close(socket);
         }
     }
 

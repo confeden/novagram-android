@@ -44,6 +44,7 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaDecoyServer;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.ui.Components.VideoPlayer;
@@ -1005,31 +1006,16 @@ public class ConnectionsManager extends BaseController {
                     return;
                 }
                 lastDnsRequestTime = System.currentTimeMillis();
-                if (second == 2) {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("start mozilla txt task");
-                    }
-                    MozillaDnsLoadTask task = new MozillaDnsLoadTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("9. currentTask = mozilla");
-                    currentTask = task;
-                } else if (second == 1) {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("start google txt task");
-                    }
-                    GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("11. currentTask = dnstxt");
-                    currentTask = task;
-                } else {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("start firebase task");
-                    }
-                    FirebaseTask task = new FirebaseTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("12. currentTask = firebase");
-                    currentTask = task;
+                // NovaGram: the native side still numbers its attempts, and
+                // nothing here reads the number any more. There is one task and
+                // one list of endpoints; a second attempt differs from the
+                // first only in that the first has already failed.
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d(NovaDoh.LOG_PREFIX + "start txt task, attempt " + second);
                 }
+                NovaDnsLoadTask task = new NovaDnsLoadTask(currentAccount);
+                task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
+                currentTask = task;
             });
         });
     }
@@ -1285,76 +1271,34 @@ public class ConnectionsManager extends BaseController {
             addresses.add(address);
         }
 
+        /**
+         * NovaGram: the fork's own resolver, and nothing after it.
+         *
+         * <p>Upstream asked {@code www.google.com} with a forged {@code Host}
+         * header and, when that failed, called {@code InetAddress.getByName} —
+         * the system resolver. That second half is the whole of what the
+         * promise is against: a network that blocks the first request gets to
+         * answer the second one, and nothing in the client would say so. It is
+         * removed rather than replaced.</p>
+         *
+         * <p>A name that cannot be resolved this way is not resolved: the
+         * connection fails visibly, which is the honest outcome. A proxy given
+         * by address needs no resolving at all, and that is the way out where
+         * the endpoints are unreachable or the name only exists inside a
+         * company network.</p>
+         *
+         * <p>Only A records are asked for. The native side accepts nothing else
+         * — {@code ConnectionSocket::onHostNameResolved} puts the answer
+         * through {@code inet_pton(AF_INET, ...)}.</p>
+         */
         protected ResolvedDomain doInBackground(Void... voids) {
-            ByteArrayOutputStream outbuf = null;
-            InputStream httpConnectionStream = null;
-            boolean done = false;
-            try {
-                URL downloadUrl = new URL("https://www.google.com/resolve?name=" + currentHostName + "&type=A");
-                URLConnection httpConnection = downloadUrl.openConnection();
-                httpConnection.addRequestProperty("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 10_0 like Mac OS X) AppleWebKit/602.1.38 (KHTML, like Gecko) Version/10.0 Mobile/14A5297c Safari/602.1");
-                httpConnection.addRequestProperty("Host", "dns.google.com");
-                httpConnection.setConnectTimeout(1000);
-                httpConnection.setReadTimeout(2000);
-                httpConnection.connect();
-                httpConnectionStream = httpConnection.getInputStream();
-
-                outbuf = new ByteArrayOutputStream();
-
-                byte[] data = new byte[1024 * 32];
-                while (true) {
-                    int read = httpConnectionStream.read(data);
-                    if (read > 0) {
-                        outbuf.write(data, 0, read);
-                    } else if (read == -1) {
-                        break;
-                    } else {
-                        break;
-                    }
-                }
-
-                JSONObject jsonObject = new JSONObject(new String(outbuf.toByteArray()));
-                if (jsonObject.has("Answer")) {
-                    JSONArray array = jsonObject.getJSONArray("Answer");
-                    int len = array.length();
-                    if (len > 0) {
-                        ArrayList<String> addresses = new ArrayList<>(len);
-                        for (int a = 0; a < len; a++) {
-                            addresses.add(array.getJSONObject(a).getString("data"));
-                        }
-                        return new ResolvedDomain(addresses, SystemClock.elapsedRealtime());
-                    }
-                }
-                done = true;
-            } catch (Throwable e) {
-                FileLog.e(e, false);
-            } finally {
-                try {
-                    if (httpConnectionStream != null) {
-                        httpConnectionStream.close();
-                    }
-                } catch (Throwable e) {
-                    FileLog.e(e, false);
-                }
-                try {
-                    if (outbuf != null) {
-                        outbuf.close();
-                    }
-                } catch (Exception ignore) {
-
-                }
+            NovaDoh.Answer answer = NovaDoh.resolve(currentHostName, NovaDoh.TYPE_A);
+            if (answer.isEmpty()) {
+                return null;
             }
-            if (!done) {
-                try {
-                    InetAddress address = InetAddress.getByName(currentHostName);
-                    ArrayList<String> addresses = new ArrayList<>(1);
-                    addresses.add(address.getHostAddress());
-                    return new ResolvedDomain(addresses, SystemClock.elapsedRealtime());
-                } catch (Exception e) {
-                    FileLog.e(e, false);
-                }
-            }
-            return null;
+            return new ResolvedDomain(
+                    new ArrayList<>(answer.values),
+                    SystemClock.elapsedRealtime());
         }
 
         @Override
@@ -1373,66 +1317,52 @@ public class ConnectionsManager extends BaseController {
         }
     }
 
-    private static class GoogleDnsLoadTask extends AsyncTask<Void, Void, NativeByteBuffer> {
+    /**
+     * NovaGram: the one task that fetches the emergency datacentre config.
+     *
+     * <p>It replaces three. {@code GoogleDnsLoadTask} and
+     * {@code MozillaDnsLoadTask} asked {@code dns.google.com} and
+     * {@code mozilla.cloudflare-dns.com} <em>by name</em>, so the system
+     * resolver decided where the emergency config came from — at the one moment
+     * the client is already being interfered with. {@code FirebaseTask} is gone
+     * by the owner's decision of 2026-08-18: it is a Google service reached by
+     * name, and the fork uses Firebase Remote Config nowhere else.</p>
+     *
+     * <p>The chain between them is gone too, and with it the padding and the
+     * forged user agent. There is one attempt, over the fork's own endpoints,
+     * and if it fails the caller may ask again — there is nothing left to fall
+     * through to, which is the point.</p>
+     */
+    private static class NovaDnsLoadTask extends AsyncTask<Void, Void, NativeByteBuffer> {
 
-        private int currentAccount;
+        private final int currentAccount;
         private int responseDate;
 
-        public GoogleDnsLoadTask(int instance) {
+        public NovaDnsLoadTask(int instance) {
             super();
             currentAccount = instance;
         }
 
         protected NativeByteBuffer doInBackground(Void... voids) {
-            ByteArrayOutputStream outbuf = null;
-            InputStream httpConnectionStream = null;
             try {
-                String domain = native_isTestBackend(currentAccount) != 0 ? "tapv3.stel.com" : AccountInstance.getInstance(currentAccount).getMessagesController().dcDomainName;
-                int len = Utilities.random.nextInt(116) + 13;
-                final String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-                StringBuilder padding = new StringBuilder(len);
-                for (int a = 0; a < len; a++) {
-                    padding.append(characters.charAt(Utilities.random.nextInt(characters.length())));
+                String domain = native_isTestBackend(currentAccount) != 0
+                        ? "tapv3.stel.com"
+                        : AccountInstance.getInstance(currentAccount).getMessagesController().dcDomainName;
+                // The reply is wanted, not only what it says: its Date header
+                // is where the client's clock comes from, and this path runs
+                // exactly when the built-in addresses are unreachable and the
+                // clock may be why.
+                NovaDoh.Answer answer = NovaDoh.resolve(domain, NovaDoh.TYPE_TXT, false);
+                if (answer.httpUnixtime > 0) {
+                    responseDate = (int) answer.httpUnixtime;
                 }
-                URL downloadUrl = new URL("https://dns.google.com/resolve?name=" + domain + "&type=ANY&random_padding=" + padding);
-                URLConnection httpConnection = downloadUrl.openConnection();
-                httpConnection.addRequestProperty("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 10_0 like Mac OS X) AppleWebKit/602.1.38 (KHTML, like Gecko) Version/10.0 Mobile/14A5297c Safari/602.1");
-                httpConnection.setConnectTimeout(5000);
-                httpConnection.setReadTimeout(5000);
-                httpConnection.connect();
-                httpConnectionStream = httpConnection.getInputStream();
-                responseDate = (int) (httpConnection.getDate() / 1000);
-
-                outbuf = new ByteArrayOutputStream();
-
-                byte[] data = new byte[1024 * 32];
-                while (true) {
-                    if (isCancelled()) {
-                        break;
-                    }
-                    int read = httpConnectionStream.read(data);
-                    if (read > 0) {
-                        outbuf.write(data, 0, read);
-                    } else if (read == -1) {
-                        break;
-                    } else {
-                        break;
-                    }
+                if (answer.isEmpty()) {
+                    return null;
                 }
-
-                JSONObject jsonObject = new JSONObject(new String(outbuf.toByteArray()));
-                JSONArray array = jsonObject.getJSONArray("Answer");
-                len = array.length();
-                ArrayList<String> arrayList = new ArrayList<>(len);
-                for (int a = 0; a < len; a++) {
-                    JSONObject object = array.getJSONObject(a);
-                    int type = object.getInt("type");
-                    if (type != 16) {
-                        continue;
-                    }
-                    arrayList.add(object.getString("data"));
-                }
+                ArrayList<String> arrayList = new ArrayList<>(answer.values);
+                // Longest first, then concatenated: that is how the server
+                // splits the base64 across TXT records, and it is the same
+                // ordering the desktop half applies.
                 Collections.sort(arrayList, (o1, o2) -> {
                     int l1 = o1.length();
                     int l2 = o2.length();
@@ -1453,21 +1383,6 @@ public class ConnectionsManager extends BaseController {
                 return buffer;
             } catch (Throwable e) {
                 FileLog.e(e, !(e instanceof SocketTimeoutException || e instanceof SSLException));
-            } finally {
-                try {
-                    if (httpConnectionStream != null) {
-                        httpConnectionStream.close();
-                    }
-                } catch (Throwable e) {
-                    FileLog.e(e);
-                }
-                try {
-                    if (outbuf != null) {
-                        outbuf.close();
-                    }
-                } catch (Exception ignore) {
-
-                }
             }
             return null;
         }
@@ -1479,217 +1394,10 @@ public class ConnectionsManager extends BaseController {
                 currentTask = null;
                 if (result != null) {
                     native_applyDnsConfig(currentAccount, result.address, AccountInstance.getInstance(currentAccount).getUserConfig().getClientPhone(), responseDate);
-                } else {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("failed to get google result");
-                        FileLog.d("start mozilla task");
-                    }
-                    MozillaDnsLoadTask task = new MozillaDnsLoadTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("4. currentTask = mozilla");
-                    currentTask = task;
+                } else if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d(NovaDoh.LOG_PREFIX + "no emergency config over secure DNS");
                 }
             });
-        }
-    }
-
-    private static class MozillaDnsLoadTask extends AsyncTask<Void, Void, NativeByteBuffer> {
-
-        private int currentAccount;
-        private int responseDate;
-
-        public MozillaDnsLoadTask(int instance) {
-            super();
-            currentAccount = instance;
-        }
-
-        protected NativeByteBuffer doInBackground(Void... voids) {
-            ByteArrayOutputStream outbuf = null;
-            InputStream httpConnectionStream = null;
-            try {
-                String domain = native_isTestBackend(currentAccount) != 0 ? "tapv3.stel.com" : AccountInstance.getInstance(currentAccount).getMessagesController().dcDomainName;
-                int len = Utilities.random.nextInt(116) + 13;
-                final String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-                StringBuilder padding = new StringBuilder(len);
-                for (int a = 0; a < len; a++) {
-                    padding.append(characters.charAt(Utilities.random.nextInt(characters.length())));
-                }
-                URL downloadUrl = new URL("https://mozilla.cloudflare-dns.com/dns-query?name=" + domain + "&type=TXT&random_padding=" + padding);
-                URLConnection httpConnection = downloadUrl.openConnection();
-                httpConnection.addRequestProperty("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 10_0 like Mac OS X) AppleWebKit/602.1.38 (KHTML, like Gecko) Version/10.0 Mobile/14A5297c Safari/602.1");
-                httpConnection.addRequestProperty("accept", "application/dns-json");
-                httpConnection.setConnectTimeout(5000);
-                httpConnection.setReadTimeout(5000);
-                httpConnection.connect();
-                httpConnectionStream = httpConnection.getInputStream();
-                responseDate = (int) (httpConnection.getDate() / 1000);
-
-                outbuf = new ByteArrayOutputStream();
-
-                byte[] data = new byte[1024 * 32];
-                while (true) {
-                    if (isCancelled()) {
-                        break;
-                    }
-                    int read = httpConnectionStream.read(data);
-                    if (read > 0) {
-                        outbuf.write(data, 0, read);
-                    } else if (read == -1) {
-                        break;
-                    } else {
-                        break;
-                    }
-                }
-
-                JSONObject jsonObject = new JSONObject(new String(outbuf.toByteArray()));
-                JSONArray array = jsonObject.getJSONArray("Answer");
-                len = array.length();
-                ArrayList<String> arrayList = new ArrayList<>(len);
-                for (int a = 0; a < len; a++) {
-                    JSONObject object = array.getJSONObject(a);
-                    int type = object.getInt("type");
-                    if (type != 16) {
-                        continue;
-                    }
-                    arrayList.add(object.getString("data"));
-                }
-                Collections.sort(arrayList, (o1, o2) -> {
-                    int l1 = o1.length();
-                    int l2 = o2.length();
-                    if (l1 > l2) {
-                        return -1;
-                    } else if (l1 < l2) {
-                        return 1;
-                    }
-                    return 0;
-                });
-                StringBuilder builder = new StringBuilder();
-                for (int a = 0; a < arrayList.size(); a++) {
-                    builder.append(arrayList.get(a).replace("\"", ""));
-                }
-                byte[] bytes = Base64.decode(builder.toString(), Base64.DEFAULT);
-                NativeByteBuffer buffer = new NativeByteBuffer(bytes.length);
-                buffer.writeBytes(bytes);
-                return buffer;
-            } catch (Throwable e) {
-                FileLog.e(e, false);
-            } finally {
-                try {
-                    if (httpConnectionStream != null) {
-                        httpConnectionStream.close();
-                    }
-                } catch (Throwable e) {
-                    FileLog.e(e);
-                }
-                try {
-                    if (outbuf != null) {
-                        outbuf.close();
-                    }
-                } catch (Exception ignore) {
-
-                }
-            }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(final NativeByteBuffer result) {
-            Utilities.stageQueue.postRunnable(() -> {
-                FileLog.d("5. currentTask = null");
-                currentTask = null;
-                if (result != null) {
-                    native_applyDnsConfig(currentAccount, result.address, AccountInstance.getInstance(currentAccount).getUserConfig().getClientPhone(), responseDate);
-                } else {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("failed to get mozilla txt result");
-                    }
-                }
-            });
-        }
-    }
-
-    private static class FirebaseTask extends AsyncTask<Void, Void, NativeByteBuffer> {
-
-        private int currentAccount;
-        private FirebaseRemoteConfig firebaseRemoteConfig;
-
-        public FirebaseTask(int instance) {
-            super();
-            currentAccount = instance;
-        }
-
-        protected NativeByteBuffer doInBackground(Void... voids) {
-            try {
-                if (native_isTestBackend(currentAccount) != 0) {
-                    throw new Exception("test backend");
-                }
-                firebaseRemoteConfig = FirebaseRemoteConfig.getInstance();
-                String currentValue = firebaseRemoteConfig.getString("ipconfigv3");
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.d("current firebase value = " + currentValue);
-                }
-
-                firebaseRemoteConfig.fetch(0).addOnCompleteListener(finishedTask -> {
-                    final boolean success = finishedTask.isSuccessful();
-                    Utilities.stageQueue.postRunnable(() -> {
-                        if (success) {
-                            firebaseRemoteConfig.activate().addOnCompleteListener(finishedTask2 -> {
-                                FileLog.d("6. currentTask = null");
-                                currentTask = null;
-                                String config = firebaseRemoteConfig.getString("ipconfigv3");
-                                if (!TextUtils.isEmpty(config)) {
-                                    byte[] bytes = Base64.decode(config, Base64.DEFAULT);
-                                    try {
-                                        NativeByteBuffer buffer = new NativeByteBuffer(bytes.length);
-                                        buffer.writeBytes(bytes);
-                                        int date = (int) (firebaseRemoteConfig.getInfo().getFetchTimeMillis() / 1000);
-                                        native_applyDnsConfig(currentAccount, buffer.address, AccountInstance.getInstance(currentAccount).getUserConfig().getClientPhone(), date);
-                                    } catch (Exception e) {
-                                        FileLog.e(e);
-                                    }
-                                } else {
-                                    if (BuildVars.LOGS_ENABLED) {
-                                        FileLog.d("failed to get firebase result");
-                                        FileLog.d("start dns txt task");
-                                    }
-                                    GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                                    FileLog.d("7. currentTask = GoogleDnsLoadTask");
-                                    currentTask = task;
-                                }
-                            });
-                        } else {
-                            if (BuildVars.LOGS_ENABLED) {
-                                FileLog.d("failed to get firebase result 2");
-                                FileLog.d("start dns txt task");
-                            }
-                            GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                            task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                            FileLog.d("7. currentTask = GoogleDnsLoadTask");
-                            currentTask = task;
-                        }
-                    });
-                });
-            } catch (Throwable e) {
-                Utilities.stageQueue.postRunnable(() -> {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("failed to get firebase result");
-                        FileLog.d("start dns txt task");
-                    }
-                    GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("8. currentTask = GoogleDnsLoadTask");
-                    currentTask = task;
-                });
-                FileLog.e(e, false);
-            }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(NativeByteBuffer result) {
-
         }
     }
 

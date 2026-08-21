@@ -64,6 +64,7 @@ import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLObject;
 import org.telegram.messenger.novagram.privacy.NovaNightSilent;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_iv;
@@ -3763,6 +3764,10 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         if (messageObject == null || parentFragment == null) {
             return;
         }
+        // The single place a reaction of this user leaves the client, so it is
+        // the single place where hiding the read status has to be taken back:
+        // both putting a reaction on and taking one back arrive here.
+        NovaReadStatus.noteReactionSent(currentAccount, messageObject);
         TLRPC.TL_messages_sendReaction req = new TLRPC.TL_messages_sendReaction();
         if (messageObject.messageOwner.isThreadMessage && messageObject.messageOwner.fwd_from != null) {
             req.peer = getMessagesController().getInputPeer(messageObject.getFromChatId());

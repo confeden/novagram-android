@@ -1110,7 +1110,10 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 				reqCall.user_id = MessagesController.getInstance(currentAccount).getInputUser(user);
 				reqCall.protocol = new TL_phone.TL_phoneCallProtocol();
 				reqCall.video = videoCall;
-				reqCall.protocol.udp_p2p = true;
+				// Not announcing a capability we are going to refuse to use:
+				// the announcement is one of the things the server weighs when
+				// it decides p2p_allowed.
+				reqCall.protocol.udp_p2p = !NovaCallPolicy.relayOnly(VoIPService.this);
 				reqCall.protocol.udp_reflector = true;
 				reqCall.protocol.min_layer = CALL_MIN_LAYER;
 				reqCall.protocol.max_layer = Instance.getConnectionMaxLayer();
@@ -1879,7 +1882,8 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 		req.protocol = new TL_phone.TL_phoneCallProtocol();
 		req.protocol.max_layer = Instance.getConnectionMaxLayer();
 		req.protocol.min_layer = CALL_MIN_LAYER;
-		req.protocol.udp_p2p = req.protocol.udp_reflector = true;
+		req.protocol.udp_reflector = true;
+		req.protocol.udp_p2p = !NovaCallPolicy.relayOnly(this);
 		Collections.addAll(req.protocol.library_versions, NativeInstance.getAllVersions());
 		ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
 			if (error != null) {
@@ -3422,7 +3426,11 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			final boolean enableNs = !(sysNsAvailable && serverConfig.useSystemNs);
 			final String logFilePath = BuildVars.DEBUG_VERSION ? VoIPHelper.getLogFilePath("voip" + privateCall.id) : VoIPHelper.getLogFilePath("" + privateCall.id, false);
 			final String statsLogFilePath = VoIPHelper.getLogFilePath("" + privateCall.id, true);
-			final Instance.Config config = new Instance.Config(initializationTimeout, receiveTimeout, voipDataSaving, privateCall.p2p_allowed, enableAec, enableNs, true, false, serverConfig.enableStunMarking, logFilePath, statsLogFilePath, privateCall.protocol.max_layer, privateCall.custom_parameters == null ? "" : privateCall.custom_parameters.data);
+			// The server's p2p_allowed is a permission, not an instruction, and
+			// this is the only place where the guarantee can be made: below it
+			// nothing sees anything but the flag. See NovaCallPolicy.
+			final boolean allowP2P = NovaCallPolicy.allowP2P(this, privateCall.p2p_allowed);
+			final Instance.Config config = new Instance.Config(initializationTimeout, receiveTimeout, voipDataSaving, allowP2P, enableAec, enableNs, true, false, serverConfig.enableStunMarking, logFilePath, statsLogFilePath, privateCall.protocol.max_layer, privateCall.custom_parameters == null ? "" : privateCall.custom_parameters.data);
 			lastLogFilePath = logFilePath;
 
 			// persistent state
@@ -3431,15 +3439,37 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			// endpoints
 			final boolean forceTcp = preferences.getBoolean("dbg_force_tcp_in_calls", false);
 			final int endpointType = forceTcp ? Instance.ENDPOINT_TYPE_TCP_RELAY : Instance.ENDPOINT_TYPE_UDP_RELAY;
-			final Instance.Endpoint[] endpoints = new Instance.Endpoint[privateCall.connections.size()];
+			final ArrayList<Instance.Endpoint> acceptedEndpoints = new ArrayList<>(privateCall.connections.size());
 			ArrayList<Long> reflectorIds = new ArrayList<>();
-			for (int i = 0; i < endpoints.length; i++) {
+			int droppedEndpoints = 0;
+			for (int i = 0; i < privateCall.connections.size(); i++) {
 				final TLRPC.PhoneConnection connection = privateCall.connections.get(i);
-				endpoints[i] = new Instance.Endpoint(connection instanceof TLRPC.TL_phoneConnectionWebrtc, connection.id, connection.ip, connection.ipv6, connection.port, endpointType, connection.peer_tag, connection.turn, connection.stun, connection.username, connection.password, connection.tcp);
 				if (connection instanceof TLRPC.TL_phoneConnection) {
+					// Collected before the filter below on purpose. These ids
+					// are sorted and renumbered into 1..N, and that number goes
+					// into the reflector peer tag - so it has to be computed
+					// from what the server sent, exactly as the other side
+					// computes it. Numbering what is left after dropping an
+					// endpoint would shift every id past the dropped one and
+					// leave the two sides talking about different reflectors.
 					reflectorIds.add(((TLRPC.TL_phoneConnection) connection).id);
 				}
+				// A non-numeric address would be left unresolved by the native
+				// stack and handed to getaddrinfo. See NovaCallPolicy.
+				final boolean goodV4 = NovaCallPolicy.acceptableCallAddress(connection.ip);
+				final boolean goodV6 = NovaCallPolicy.acceptableCallAddress(connection.ipv6);
+				if (!goodV4 && !goodV6) {
+					droppedEndpoints++;
+					continue;
+				}
+				acceptedEndpoints.add(new Instance.Endpoint(connection instanceof TLRPC.TL_phoneConnectionWebrtc, connection.id, goodV4 ? connection.ip : "", goodV6 ? connection.ipv6 : "", connection.port, endpointType, connection.peer_tag, connection.turn, connection.stun, connection.username, connection.password, connection.tcp));
 			}
+			if (droppedEndpoints > 0) {
+				// Worth a line: the call may fail to connect because of this,
+				// and then the reason has to be findable.
+				FileLog.w("novagram: dropped " + droppedEndpoints + " call endpoint(s) with a non-numeric address");
+			}
+			final Instance.Endpoint[] endpoints = acceptedEndpoints.toArray(new Instance.Endpoint[0]);
 			if (!reflectorIds.isEmpty()) {
 				Collections.sort(reflectorIds);
 				HashMap<Long, Integer> reflectorIdMapping = new HashMap<>();
@@ -4369,7 +4399,8 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 				req1.peer.id = privateCall.id;
 				req1.peer.access_hash = privateCall.access_hash;
 				req1.protocol = new TL_phone.TL_phoneCallProtocol();
-				req1.protocol.udp_p2p = req1.protocol.udp_reflector = true;
+				req1.protocol.udp_reflector = true;
+				req1.protocol.udp_p2p = !NovaCallPolicy.relayOnly(VoIPService.this);
 				req1.protocol.min_layer = CALL_MIN_LAYER;
 				req1.protocol.max_layer = Instance.getConnectionMaxLayer();
 				Collections.addAll(req1.protocol.library_versions, NativeInstance.getAllVersions());

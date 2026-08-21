@@ -15,6 +15,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.browser.Browser;
+import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaFileNames;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
@@ -24,6 +25,7 @@ import org.telegram.messenger.novagram.privacy.NovaPinLockPolicy;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaPinVault;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyFeature;
+import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
 import org.telegram.messenger.novagram.update.NovaUpdateChecker;
@@ -76,6 +78,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_PIN_POLICY = 19;
     private static final int ID_FILE_NAMES = 20;
     private static final int ID_METADATA = 21;
+    private static final int ID_CALLS_RELAY = 22;
+    private static final int ID_DOH = 23;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -179,6 +183,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean enabled = !NovaReadStatus.isEnabled(currentAccount);
             NovaReadStatus.setEnabled(currentAccount, enabled);
             ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_CALLS_RELAY) {
+            boolean enabled = !NovaCallPolicy.relayOnly(getParentActivity());
+            NovaCallPolicy.setRelayOnly(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_PUSH_PREVIEW) {
             boolean enabled = !NovaNotificationPrivacy.isEnabled(currentAccount);
             NovaNotificationPrivacy.setEnabled(currentAccount, enabled);
@@ -245,9 +253,22 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     ? release.releaseUrl
                     : NovaUpdateChecker.releaseUrl();
             Browser.openUrl(getParentActivity(), url);
+        } else if (item.id == ID_DOH) {
+            presentFragment(new NovaDohActivity());
         } else if (item.id == ID_PROJECT) {
             Browser.openUrl(getParentActivity(), NovaUpdateChecker.PROJECT_URL);
         }
+    }
+
+    /** How many endpoints are on, shown next to the row. */
+    private int enabledDohCount() {
+        int result = 0;
+        for (NovaDoh.Endpoint endpoint : NovaDoh.endpoints()) {
+            if (endpoint.enabled) {
+                result++;
+            }
+        }
+        return result;
     }
 
     private boolean isAppPinSet() {
@@ -430,6 +451,17 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.add(Item.check(ID_READ_STATUS, LocaleController.getString(R.string.NovaReadStatusTitle)));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaReadStatusInfo)));
 
+        items.add(Item.header(LocaleController.getString(R.string.NovaCallsHeader)));
+        items.add(Item.check(ID_CALLS_RELAY, LocaleController.getString(R.string.NovaCallsRelayTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaCallsRelayInfo)));
+
+        items.add(Item.header(LocaleController.getString(R.string.NovaDohHeader)));
+        items.add(Item.value(
+                ID_DOH,
+                LocaleController.getString(R.string.NovaDohTitle),
+                String.valueOf(enabledDohCount())));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaDohInfo)));
+
         items.add(Item.header(LocaleController.getString(R.string.NovaFilesHeader)));
         items.add(Item.check(ID_FILE_NAMES, LocaleController.getString(R.string.NovaFileNamesTitle)));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaFileNamesInfo)));
@@ -596,6 +628,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaAutoDelete.isEnabled(currentAccount);
                 } else if (item.id == ID_READ_STATUS) {
                     checked = NovaReadStatus.isEnabled(currentAccount);
+                } else if (item.id == ID_CALLS_RELAY) {
+                    checked = NovaCallPolicy.relayOnly(getContext());
                 } else if (item.id == ID_PUSH_PREVIEW) {
                     checked = NovaNotificationPrivacy.isEnabled(currentAccount);
                 } else if (item.id == ID_FILE_NAMES) {

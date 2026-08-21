@@ -112,7 +112,20 @@
     <string name="NovaReadStatusTurnOff">Turn off permanently</string>
     <string name="NovaReadStatusPanelTitle">Read status hidden</string>
     <string name="NovaReadStatusPanelText">The other side cannot see that you read this. Answering here turns it off, as does the chat menu.</string>
-    <string name="NovaReadStatusInfo">When a stranger writes to you and you have not answered yet, the read marks are never sent to them. The rule is made on the first such message; groups, channels, bots and Saved Messages are left alone. Any answer of yours lifts it for good, and for Telegram such a conversation stays unread.</string>
+    <string name="NovaReadStatusInfo">When a stranger writes to you and you have not answered yet, the read marks are never sent to them. The rule is made on the first such message; groups, channels, bots and Saved Messages are left alone. An answer or a reaction of yours lifts it for good, and for Telegram such a conversation stays unread.</string>
+    <string name="NovaDohHeader">Encrypted DNS</string>
+    <string name="NovaDohTitle">Encrypted DNS</string>
+    <string name="NovaDohInfo">Names NovaGram resolves itself go through this list and nothing else: neither the system, nor the network, nor Private DNS affects it or stands in for it. Inside web pages and mini apps names are resolved by the system WebView.</string>
+    <string name="NovaDohListInfo">Tried in this order; the first to answer wins. A server of your own is resolved through the built-in ones that are on, and sees every name this client asks about.</string>
+    <string name="NovaDohAdd">Add your own server</string>
+    <string name="NovaDohAddTitle">Your own server</string>
+    <string name="NovaDohAddHost">dns.example.org</string>
+    <string name="NovaDohAddAddresses">IP addresses, comma separated, optional</string>
+    <string name="NovaDohRemove">Remove</string>
+    <string name="NovaDohRemoveQuestion">Remove %1$s from the list?</string>
+    <string name="NovaCallsHeader">Calls</string>
+    <string name="NovaCallsRelayTitle">Route calls through Telegram servers only</string>
+    <string name="NovaCallsRelayInfo">The other side never sees your IP address: voice and video go through a relay instead of straight to them. Calls are a little slower, and their traffic passes through Telegram.</string>
     <string name="NovaSendingHeader">Sending messages</string>
     <string name="NovaNightSilentTitle">Silent messages at night</string>
     <string name="NovaNightSilentHours">22:00 – 07:00</string>
@@ -150,4 +163,5 @@
     <string name="NovaMuteInChatDisable">Turn off</string>
     <string name="NovaMuteInChatBack">Back</string>
     <string name="NovaMutedMessage">Hidden message</string>
+    <string name="NovaPeerIdCopied">ID copied</string>
 </resources>

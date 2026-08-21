@@ -28,7 +28,15 @@ public enum NovaPrivacyFeature {
     ERASE_EVIDENCE("erase_evidence", Scope.ACCOUNT, true, true),
     STRICT_ENCRYPTED_DNS("strict_encrypted_dns", Scope.GLOBAL, true, false),
     FORCED_CLOUDFLARE_TRANSPORT("forced_cloudflare_transport", Scope.GLOBAL, true, false),
-    PROTECTED_CALLS("protected_calls", Scope.GLOBAL, false, false);
+    // Calls were off while there was nothing to protect them with. Since the
+    // relay-only guarantee exists they are on, and this stays a security
+    // invariant rather than a switch: the thing the user gets to choose is
+    // CALLS_RELAY_ONLY below, not whether the fork lets calls happen.
+    PROTECTED_CALLS("protected_calls", Scope.GLOBAL, true, false),
+    // Never let call media go straight to the other side. On by default,
+    // because a promise that has to be switched on protects only the people who
+    // already knew to look for it.
+    CALLS_RELAY_ONLY("calls_relay_only", Scope.GLOBAL, true, true);
 
     public enum Scope {
         GLOBAL,

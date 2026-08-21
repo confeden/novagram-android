@@ -3,11 +3,6 @@ package org.telegram.messenger.novagram.privacy;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 /**
  * Non-sensitive persisted NovaGram privacy preferences.
  *
@@ -24,7 +19,22 @@ public final class NovaPrivacySettings {
     private static final String KEY_SAVED_RETENTION_HOURS = "saved_retention_hours";
     private static final String KEY_SCREENSHOT_POLICY = "screenshot_policy";
     private static final String KEY_METADATA_POLICY = "metadata_policy";
-    private static final String KEY_DOH_PROVIDER_ORDER = "doh_provider_order";
+    /**
+     * The encrypted DNS list as the owner of the device edited it — which of
+     * the four compiled-in endpoints are on, plus any server they added.
+     *
+     * <p>This is not the key that was removed in 2026-08-15. That one stored an
+     * <em>order</em> of the built-in four and was written by nobody, while the
+     * promise said the list could not be reassigned by settings — the code
+     * disproved its own claim. What the promise protects is reassignment by the
+     * system, the network, {@code hosts} or Private DNS, and none of them can
+     * write here. The owner of the device can, deliberately, since 2026-08-18.</p>
+     *
+     * <p>Whatever is stored, the built-in four are always present: a release
+     * that adds or renames one must not be overruled by a file an older build
+     * wrote. See {@code NovaDoh.endpoints()}.</p>
+     */
+    private static final String KEY_DOH_ENDPOINTS = "novagram_doh_endpoints";
     private static final String KEY_APP_PIN_DECLINED = "app_pin_declined";
     /**
      * Night mode keys, spelled exactly as on desktop so that one line in the
@@ -164,43 +174,6 @@ public final class NovaPrivacySettings {
         globalPreferences.edit().putString(KEY_METADATA_POLICY, policy.name()).apply();
     }
 
-    public List<NovaPrivacyContract.DohProvider> getDohProviderOrder() {
-        String stored = readString(globalPreferences, KEY_DOH_PROVIDER_ORDER);
-        if (stored == null || stored.length() == 0) {
-            return new ArrayList<>(NovaPrivacyContract.DEFAULT_DOH_ORDER);
-        }
-        List<NovaPrivacyContract.DohProvider> providers = new ArrayList<>();
-        Set<NovaPrivacyContract.DohProvider> seen = new HashSet<>();
-        String[] ids = stored.split(",");
-        for (String id : ids) {
-            NovaPrivacyContract.DohProvider provider = NovaPrivacyContract.DohProvider.fromId(id);
-            if (provider != null && seen.add(provider)) {
-                providers.add(provider);
-            }
-        }
-        return providers.isEmpty()
-                ? new ArrayList<>(NovaPrivacyContract.DEFAULT_DOH_ORDER)
-                : providers;
-    }
-
-    public void setDohProviderOrder(List<NovaPrivacyContract.DohProvider> providers) {
-        if (providers == null || providers.isEmpty()) {
-            throw new IllegalArgumentException("At least one encrypted DNS provider is required");
-        }
-        StringBuilder encoded = new StringBuilder();
-        Set<NovaPrivacyContract.DohProvider> seen = new HashSet<>();
-        for (NovaPrivacyContract.DohProvider provider : providers) {
-            if (provider == null || !seen.add(provider)) {
-                throw new IllegalArgumentException("DNS provider order contains null or duplicate values");
-            }
-            if (encoded.length() > 0) {
-                encoded.append(',');
-            }
-            encoded.append(provider.getId());
-        }
-        globalPreferences.edit().putString(KEY_DOH_PROVIDER_ORDER, encoded.toString()).apply();
-    }
-
     /**
      * Whether the user chose to continue without an application PIN when it was
      * offered after signing in. Non-sensitive: it only suppresses the PIN
@@ -241,6 +214,16 @@ public final class NovaPrivacySettings {
         }
         globalPreferences.edit()
                 .putString(KEY_PIN_LOCK_POLICY, policy.getStorageKey())
+                .apply();
+    }
+
+    public String getDohEndpoints() {
+        return readString(globalPreferences, KEY_DOH_ENDPOINTS);
+    }
+
+    public void setDohEndpoints(String value) {
+        globalPreferences.edit()
+                .putString(KEY_DOH_ENDPOINTS, value == null ? "" : value)
                 .apply();
     }
 

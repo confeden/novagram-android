@@ -111,7 +111,20 @@
     <string name="NovaReadStatusTurnOff">Отключить навсегда</string>
     <string name="NovaReadStatusPanelTitle">Статус прочтения скрыт</string>
     <string name="NovaReadStatusPanelText">Собеседник не видит, что вы прочитали. Скрытие снимется, если вы ответите здесь или отключите его в меню чата.</string>
-    <string name="NovaReadStatusInfo">Когда вам пишет незнакомец, а вы ещё не отвечали, галочки прочтения ему не отправляются. Правило заводится по первому такому сообщению; группы, каналы, боты и «Избранное» не затрагиваются. Любой ваш ответ снимает скрытие навсегда, а для Telegram такая переписка остаётся непрочитанной.</string>
+    <string name="NovaReadStatusInfo">Когда вам пишет незнакомец, а вы ещё не отвечали, галочки прочтения ему не отправляются. Правило заводится по первому такому сообщению; группы, каналы, боты и «Избранное» не затрагиваются. Ваш ответ или реакция снимают скрытие навсегда, а для Telegram такая переписка остаётся непрочитанной.</string>
+    <string name="NovaDohHeader">Защищённый DNS</string>
+    <string name="NovaDohTitle">Защищённый DNS</string>
+    <string name="NovaDohInfo">Имена, которые NovaGram разрешает сам, идут только по этому списку. Ни система, ни сеть, ни Private DNS на него не влияют и не подставляются взамен. Внутри веб-страниц и мини-приложений имена резолвит системный WebView.</string>
+    <string name="NovaDohListInfo">Порядок — это порядок попыток: выигрывает первый ответивший. Свой сервер разрешается через включённые встроенные и видит все имена, о которых спрашивает клиент.</string>
+    <string name="NovaDohAdd">Добавить свой сервер</string>
+    <string name="NovaDohAddTitle">Свой сервер</string>
+    <string name="NovaDohAddHost">dns.example.org</string>
+    <string name="NovaDohAddAddresses">IP-адреса через запятую, можно не указывать</string>
+    <string name="NovaDohRemove">Удалить</string>
+    <string name="NovaDohRemoveQuestion">Удалить %1$s из списка?</string>
+    <string name="NovaCallsHeader">Звонки</string>
+    <string name="NovaCallsRelayTitle">Звонки только через серверы Telegram</string>
+    <string name="NovaCallsRelayInfo">Собеседник не увидит ваш IP-адрес: голос и видео идут через ретранслятор, а не напрямую. Связь при этом чуть медленнее, а трафик звонка проходит через Telegram.</string>
     <string name="NovaSendingHeader">Отправка сообщений</string>
     <string name="NovaNightSilentTitle">Беззвучные сообщения ночью</string>
     <string name="NovaNightSilentHours">22:00 – 07:00</string>
@@ -149,4 +162,5 @@
     <string name="NovaMuteInChatDisable">Отключить</string>
     <string name="NovaMuteInChatBack">Назад</string>
     <string name="NovaMutedMessage">Скрытое сообщение</string>
+    <string name="NovaPeerIdCopied">ID скопирован</string>
 </resources>

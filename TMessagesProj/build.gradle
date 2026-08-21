@@ -121,8 +121,22 @@ android {
         externalNativeBuild {
             cmake {
                 version '3.10.2'
+                // ANDROID_PLATFORM is the minimum the NATIVE code is built for,
+                // and it has to stay at upstream's value. It stood at
+                // android-34 here and that shipped a client which died at
+                // startup on every Android below 12, with no Java exception to
+                // explain it: at API 29+ clang emits TLSDESC relocations for
+                // thread_local variables, and bionic only learned to resolve
+                // R_AARCH64_TLSDESC in Android 12. On anything older the
+                // descriptor stays zero and the first read of such a variable
+                // calls address 0 - SIGSEGV, pc=0, backtrace of one frame.
+                //
+                // The manifest said android-23 all along, so nothing warned:
+                // the APK installed happily and then crashed. Raising this
+                // above the declared minSdkVersion is therefore never
+                // harmless, and the pair has to move together.
                 arguments '-DANDROID_STL=c++_static',
-                        '-DANDROID_PLATFORM=android-34',
+                        '-DANDROID_PLATFORM=android-21',
                         '-DCMAKE_JOB_POOLS=compile=4;link=2',
                         '-DCMAKE_JOB_POOL_COMPILE=compile',
                         '-DCMAKE_JOB_POOL_LINK=link' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'

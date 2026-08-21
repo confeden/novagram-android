@@ -246,11 +246,22 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
                 }
                 loading = false;
                 loadedState.setOwnerId(ownerId);
+                // Rules written while the file was being read: an answer or a
+                // reaction can land in that window, and reveal() is permanent.
+                boolean writtenBeforeLoad = !state.getRules().isEmpty();
                 for (Map.Entry<Long, Integer> rule : state.getRules().entrySet()) {
                     loadedState.setRule(rule.getKey(), rule.getValue());
                 }
                 state = loadedState;
                 loaded = true;
+                if (writtenBeforeLoad) {
+                    // scheduleSave() refuses to run before the file is read, so
+                    // those rules were carried into memory and never sealed.
+                    // Without this they survive only until the process ends —
+                    // the same defect that cost the muted-members engine its
+                    // whole file once.
+                    scheduleSave();
+                }
                 settleDialogs();
                 notifyRulesChanged();
             });
@@ -399,6 +410,47 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         // the catch-up sends anything in that case.
         catchUpReads(dialogId);
         notifyRulesChanged();
+    }
+
+    /**
+     * A reaction the user puts on a message somebody else wrote is delivered to
+     * that person and named as theirs, so it says the message was read exactly
+     * as plainly as an answer does — and withholding the receipt afterwards
+     * protects nothing. Does the same as the user's own message: stops hiding
+     * in that dialog for good.
+     *
+     * <p>Called for taking a reaction back as well as for putting one on, and
+     * deliberately so: taking one back means it had been there, and the other
+     * side has already been told. A reaction on the user's own message changes
+     * nothing — it says nothing about their messages having been read.</p>
+     */
+    public static void noteReactionSent(int account, MessageObject message) {
+        if (wiped || message == null || NovaDecoyState.isActive()) {
+            return;
+        }
+        try {
+            if (message.isOut()) {
+                return;
+            }
+            long dialogId = message.getDialogId();
+            if (!DialogObject.isUserDialog(dialogId)
+                    || dialogId == UserConfig.getInstance(account).getClientUserId()) {
+                return;
+            }
+            NovaReadStatus instance = getInstance(account);
+            if (instance.neverHidden(dialogId)) {
+                return;
+            }
+            // The rules are touched on the main thread only, and sendReaction
+            // is not promised to run there.
+            AndroidUtilities.runOnUIThread(() -> {
+                if (!wiped) {
+                    instance.reveal(dialogId);
+                }
+            });
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
     }
 
     /**
