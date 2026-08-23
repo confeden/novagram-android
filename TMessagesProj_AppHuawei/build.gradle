@@ -49,6 +49,10 @@ android {
         coreLibraryDesugaringEnabled true
     }
 
+    androidResources {
+        localeFilters += ["en", "ar", "de", "es", "it", "ko", "nl", "pt-rBR", "ru", "uk"]
+    }
+
     signingConfigs {
         debug {
             storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
