@@ -34,6 +34,12 @@ public final class NovaPinSession {
     }
 
     public static boolean isUnlocked() {
+        if (NovaDeviceLock.isBlocked()) {
+            // Before every other answer, the decoy included: the authorization
+            // data on this disk was sealed to a different device, so there is
+            // nothing here to unlock and nothing that may be started over it.
+            return false;
+        }
         if (NovaDecoyState.isActive()) {
             // The decoy has an account record of its own and would otherwise
             // trip the gate. Asking for a PIN there would announce that

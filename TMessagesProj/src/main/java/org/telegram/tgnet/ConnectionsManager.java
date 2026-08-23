@@ -44,6 +44,7 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaDecoyServer;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
@@ -774,8 +775,26 @@ public class ConnectionsManager extends BaseController {
             packageId = "";
         }
 
+        // NovaGram: before native_init, which builds the Config and reads
+        // tgnet.dat. The authorization keys in that file are sealed to this
+        // device, and the key has to be in place for the very first read.
+        NovaDeviceLock.installNativeKey();
+        boolean rewriteConfig = NovaDeviceLock.needsConfigRewrite();
+
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
+        if (rewriteConfig) {
+            // Upgraded from a build that wrote the file in the clear, or the
+            // binding was switched while the application was not running. The
+            // ordinary writes would get there eventually; this does not leave
+            // it to chance.
+            novaRewriteConfig();
+        }
         checkConnection();
+    }
+
+    /** NovaGram: rewrites tgnet.dat through the device binding in effect now. */
+    public void novaRewriteConfig() {
+        native_novaRewriteConfig(currentAccount);
     }
 
     public static void setLangCode(String langCode) {
@@ -1133,6 +1152,9 @@ public class ConnectionsManager extends BaseController {
     public static native void native_setRegId(int currentAccount, String regId);
     public static native void native_setSystemLangCode(int currentAccount, String langCode);
     public static native void native_setJava(boolean useJavaByteBuffers);
+    /** NovaGram: 32 bytes unwrapped from the Android Keystore, or null when there is no binding. */
+    public static native void native_novaSetDeviceKey(byte[] key, boolean sealWrites);
+    public static native void native_novaRewriteConfig(int currentAccount);
     public static native void native_setPushConnectionEnabled(int currentAccount, boolean value);
     public static native void native_applyDnsConfig(int currentAccount, long address, String phone, int date);
     public static native long native_checkProxy(int currentAccount, String address, int port, String username, String password, String secret, RequestTimeDelegate requestTimeDelegate);

@@ -52,11 +52,51 @@ public final class NovaEmergencyWipe {
         requestServerLogout();
         clearLocalAccounts();
         destroyPinState();
+        destroyDeviceKey();
         deleteStorage(target);
         // Re-armed last, because the sweep above removes the marker together
         // with the PIN state: the decoy must not inherit a PIN prompt, and the
         // two live in the same protected directory.
         NovaDecoyState.arm(target, identity[0], identity[1], identity[2]);
+    }
+
+    /**
+     * The same sweep without the disguise: the owner told the device lock to
+     * give up on data it cannot read.
+     *
+     * <p>No decoy is armed - nothing was destroyed to hide - and no logout is
+     * requested, because there is no authorization key here to sign one with.
+     * The session on the servers stays alive; it is ended from the device that
+     * owns it, or from the account's active-sessions list.</p>
+     *
+     * <p>Must not run on the UI thread.</p>
+     */
+    public static void runForNewDevice(Context context) {
+        Context app = context.getApplicationContext();
+        Context target = app != null ? app : context;
+
+        NovaAutoDelete.shutdown();
+        NovaReadStatus.shutdown();
+        NovaMutedMembers.shutdown();
+
+        destroyPinState();
+        destroyDeviceKey();
+        deleteStorage(target);
+    }
+
+    private static void destroyDeviceKey() {
+        // Order matters. The secret goes out of the network library first: a
+        // config write landing after deleteStorage() removed the binding file
+        // would seal tgnet.dat to a secret nothing can recover, and the next
+        // start would meet the "another device" screen instead of the decoy.
+        NovaDeviceLock.forget();
+        // The stale Keystore key opens nothing anyway - what it wrapped went
+        // with the binding file - but it is removed so that the next start
+        // creates a binding of its own.
+        try {
+            NovaDeviceKeyStore.delete();
+        } catch (Throwable ignored) {
+        }
     }
 
     private static String[] captureIdentity() {

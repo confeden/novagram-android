@@ -36,7 +36,12 @@ public enum NovaPrivacyFeature {
     // Never let call media go straight to the other side. On by default,
     // because a promise that has to be switched on protects only the people who
     // already knew to look for it.
-    CALLS_RELAY_ONLY("calls_relay_only", Scope.GLOBAL, true, true);
+    CALLS_RELAY_ONLY("calls_relay_only", Scope.GLOBAL, true, true),
+    // Seals the datacenter authorization keys to a key that lives in the
+    // Android Keystore. On by default and GLOBAL, matching the desktop fork:
+    // upstream leaves tgnet.dat readable, which is what makes a copied
+    // application data directory sign in on another device.
+    DEVICE_BINDING("device_binding", Scope.GLOBAL, true, true);
 
     public enum Scope {
         GLOBAL,

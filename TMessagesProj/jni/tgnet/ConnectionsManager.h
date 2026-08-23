@@ -88,6 +88,11 @@ public:
     void receivedCaptchaResult(int32_t requestTokensCount, int32_t* requestTokens, std::string token);
     void moveToDatacenter(uint32_t datacenterId);
 
+    // NovaGram: rewrites tgnet.dat through the device binding in effect now.
+    // Only needed when the owner switches the binding on or off while the
+    // application is running; every other write happens on its own.
+    void novaRewriteConfig();
+
 private:
     static void *ThreadProc(void *data);
 

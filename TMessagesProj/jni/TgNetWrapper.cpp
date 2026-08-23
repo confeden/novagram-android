@@ -7,6 +7,7 @@
 #include "tgnet/ConnectionSocket.h"
 #include "tgnet/FileLog.h"
 #include "tgnet/Handshake.h"
+#include "tgnet/NovaConfigSeal.h"
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/bn.h>
@@ -521,6 +522,33 @@ void setJava(JNIEnv *env, jclass c, jboolean useJavaByteBuffers) {
     }
 }
 
+// NovaGram: the key that seals tgnet.dat. Java unwraps it from the Android
+// Keystore and hands it over before the first ConnectionsManager exists, so
+// that the very first read of the config already goes through it. A null
+// array means there is no binding and the file keeps the upstream layout.
+void novaSetDeviceKey(JNIEnv *env, jclass c, jbyteArray key, jboolean sealWrites) {
+    if (key == nullptr) {
+        NovaConfigSeal::setKey(nullptr, 0, false);
+        return;
+    }
+    jsize length = env->GetArrayLength(key);
+    jbyte *bytes = env->GetByteArrayElements(key, nullptr);
+    if (bytes == nullptr) {
+        NovaConfigSeal::setKey(nullptr, 0, false);
+        return;
+    }
+    NovaConfigSeal::setKey(
+            reinterpret_cast<const uint8_t *>(bytes),
+            (size_t) length,
+            sealWrites == JNI_TRUE
+    );
+    env->ReleaseByteArrayElements(key, bytes, JNI_ABORT);
+}
+
+void novaRewriteConfig(JNIEnv *env, jclass c, jint instanceNum) {
+    ConnectionsManager::getInstance(instanceNum).novaRewriteConfig();
+}
+
 static const char *ConnectionsManagerClassPathName = "org/telegram/tgnet/ConnectionsManager";
 static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_getCurrentTimeMillis", "(I)J", (void *) getCurrentTimeMillis},
@@ -552,6 +580,8 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_setNetworkAvailable", "(IZIZ)V", (void *) setNetworkAvailable},
         {"native_setPushConnectionEnabled", "(IZ)V", (void *) setPushConnectionEnabled},
         {"native_setJava", "(Z)V", (void *) setJava},
+        {"native_novaSetDeviceKey", "([BZ)V", (void *) novaSetDeviceKey},
+        {"native_novaRewriteConfig", "(I)V", (void *) novaRewriteConfig},
         {"native_applyDnsConfig", "(IJLjava/lang/String;I)V", (void *) applyDnsConfig},
         {"native_checkProxy", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/telegram/tgnet/RequestTimeDelegate;)J", (void *) checkProxy},
         {"native_onHostNameResolved", "(Ljava/lang/String;JLjava/lang/String;)V", (void *) onHostNameResolved},

@@ -487,6 +487,15 @@ void ConnectionsManager::saveConfig() {
     buffer->reuse();
 }
 
+void ConnectionsManager::novaRewriteConfig() {
+    // NovaGram: the device binding was switched on or off, so what is on disk
+    // now has the wrong protection. Queued on the network thread, because that
+    // is the only thread that is ever inside saveConfig().
+    scheduleTask([&] {
+        saveConfig();
+    });
+}
+
 inline NativeByteBuffer *decompressGZip(NativeByteBuffer *data) {
     int retCode;
     z_stream stream;

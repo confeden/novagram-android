@@ -10,10 +10,12 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
+#include <vector>
 #include "Config.h"
 #include "ConnectionsManager.h"
 #include "FileLog.h"
 #include "BuffersStorage.h"
+#include "NovaConfigSeal.h"
 
 Config::Config(int32_t instance, std::string fileName) {
     instanceNum = instance;
@@ -43,10 +45,24 @@ NativeByteBuffer *Config::readConfig() {
         size_t bytesRead = fread(&size, sizeof(uint32_t), 1, file);
         if (LOGS_ENABLED) DEBUG_D("Config(%p, %s) load, size = %u, fileSize = %u", this, configPath.c_str(), size, (uint32_t) fileSize);
         if (bytesRead > 0 && size > 0 && (int32_t) size < fileSize) {
-            buffer = BuffersStorage::getInstance().getFreeBuffer(size);
-            if (fread(buffer->bytes(), sizeof(uint8_t), size, file) != size) {
-                buffer->reuse();
-                buffer = nullptr;
+            std::vector<uint8_t> stored(size);
+            if (fread(stored.data(), sizeof(uint8_t), size, file) == size) {
+                if (NovaConfigSeal::isSealed(stored.data(), stored.size())) {
+                    // NovaGram: sealed to the device that wrote it. A failure
+                    // here answers "no config" rather than "empty config" -
+                    // there is no authorization to be had from bytes this
+                    // device cannot read.
+                    std::vector<uint8_t> plain;
+                    if (NovaConfigSeal::open(stored.data(), stored.size(), plain)
+                        && !plain.empty()) {
+                        buffer = BuffersStorage::getInstance().getFreeBuffer((uint32_t) plain.size());
+                        memcpy(buffer->bytes(), plain.data(), plain.size());
+                    }
+                } else {
+                    // Written before this build, or with binding switched off.
+                    buffer = BuffersStorage::getInstance().getFreeBuffer(size);
+                    memcpy(buffer->bytes(), stored.data(), size);
+                }
             }
         }
         fclose(file);
@@ -56,6 +72,23 @@ NativeByteBuffer *Config::readConfig() {
 
 void Config::writeConfig(NativeByteBuffer *buffer) {
     if (LOGS_ENABLED) DEBUG_D("Config(%p, %s) start write config", this, configPath.c_str());
+
+    // NovaGram: sealed before a single file is touched. Once the old config
+    // has been renamed to the backup there is no good way to change our mind,
+    // and giving up on a write leaves readable authorization keys behind - the
+    // exact thing this exists to prevent.
+    const uint8_t *payload = buffer->bytes();
+    uint32_t payloadSize = buffer->position();
+    std::vector<uint8_t> sealed;
+    if (NovaConfigSeal::sealsWrites()) {
+        if (!NovaConfigSeal::seal(buffer->bytes(), payloadSize, sealed)) {
+            if (LOGS_ENABLED) DEBUG_E("Config(%p, %s) sealing failed, keeping the previous config", this, configPath.c_str());
+            return;
+        }
+        payload = sealed.data();
+        payloadSize = (uint32_t) sealed.size();
+    }
+
     FILE *file = fopen(configPath.c_str(), "rb");
     FILE *backup = fopen(backupPath.c_str(), "rb");
     bool error = false;
@@ -86,9 +119,9 @@ void Config::writeConfig(NativeByteBuffer *buffer) {
         if (LOGS_ENABLED) DEBUG_E("Config(%p, %s) unable to open file for writing", this, configPath.c_str());
         return;
     }
-    uint32_t size = buffer->position();
+    uint32_t size = payloadSize;
     if (fwrite(&size, sizeof(uint32_t), 1, file) == 1) {
-        if (fwrite(buffer->bytes(), sizeof(uint8_t), size, file) != size) {
+        if (fwrite(payload, sizeof(uint8_t), size, file) != size) {
             if (LOGS_ENABLED) DEBUG_E("Config(%p, %s) failed to write config data to file", this, configPath.c_str());
             error = true;
         }

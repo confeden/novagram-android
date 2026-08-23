@@ -24,6 +24,7 @@ import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.R;
+import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaEmergencyWipe;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaPinVault;
@@ -204,6 +205,12 @@ public final class NovaPinGateActivity extends Activity {
     }
 
     private void inspectVault() {
+        if (NovaDeviceLock.isBlocked()) {
+            // Asked before the vault: there is no PIN that opens data sealed to
+            // another device, and a PIN prompt here would say the wrong thing.
+            showDeviceChanged();
+            return;
+        }
         mode = Mode.LOADING;
         titleView.setText(R.string.NovaPinTitle);
         descriptionView.setText(R.string.NovaPinCheckingProtection);
@@ -435,6 +442,51 @@ public final class NovaPinGateActivity extends Activity {
             pendingSoftwarePin = null;
             showFirstEnrollment();
         }), matchWrap(0));
+    }
+
+    private void showDeviceChanged() {
+        mode = Mode.DEVICE_CHANGED;
+        setBusy(false);
+        clearInput();
+        keypad.removeAllViews();
+        actionPanel.removeAllViews();
+        titleView.setText(R.string.NovaDeviceChangedTitle);
+        descriptionView.setText(R.string.NovaDeviceChangedDescription);
+        errorView.setText("");
+        actionPanel.addView(
+                actionButton(R.string.NovaDeviceChangedReset, this::confirmDeviceReset),
+                matchWrap(0));
+    }
+
+    private void confirmDeviceReset() {
+        if (busy) {
+            return;
+        }
+        // One deliberate confirmation. Nothing here can be read, but the sweep
+        // that follows is final, and it is the owner who decides to give up.
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.NovaDeviceChangedReset)
+                .setMessage(R.string.NovaDeviceChangedResetConfirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.NovaDeviceChangedReset,
+                        (dialog, which) -> beginDeviceReset())
+                .show();
+    }
+
+    private void beginDeviceReset() {
+        setBusy(true);
+        descriptionView.setText(R.string.NovaDeviceChangedResetting);
+        executor.execute(() -> {
+            NovaDeviceLock.resetForNewDevice(getApplicationContext());
+            AndroidUtilities.runOnUIThread(() -> {
+                Intent intent = new Intent(this, LaunchActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finishAffinity();
+                System.exit(0);
+            });
+        });
     }
 
     private void showFatal(int message) {
@@ -855,6 +907,7 @@ public final class NovaPinGateActivity extends Activity {
         EMERGENCY_VERIFY,
         EMERGENCY_FIRST,
         EMERGENCY_CONFIRM,
+        DEVICE_CHANGED,
         FATAL
     }
 }

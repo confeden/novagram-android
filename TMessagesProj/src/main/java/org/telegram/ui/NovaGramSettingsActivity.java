@@ -17,6 +17,7 @@ import org.telegram.messenger.R;
 import org.telegram.messenger.browser.Browser;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
+import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaFileNames;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
@@ -80,6 +81,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_METADATA = 21;
     private static final int ID_CALLS_RELAY = 22;
     private static final int ID_DOH = 23;
+    private static final int ID_DEVICE_BINDING = 24;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -167,6 +169,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
             Intent intent = new Intent(getParentActivity(), NovaPinGateActivity.class);
             intent.putExtra(NovaPinGateActivity.EXTRA_SETUP_EMERGENCY, true);
             getParentActivity().startActivity(intent);
+        } else if (item.id == ID_DEVICE_BINDING) {
+            boolean enabled = !NovaDeviceLock.isEnabled();
+            NovaDeviceLock.setEnabled(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_SCREENSHOTS) {
             NovaPrivacySettings settings = NovaPrivacySettings.global(getParentActivity());
             boolean enabled = !settings.isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);
@@ -409,6 +415,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.clear();
         boolean appPinSet = isAppPinSet();
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsSecurityHeader)));
+        // First in the section on purpose: it works with no PIN set, and it is
+        // the only thing between a copied data directory and the account.
+        items.add(Item.check(ID_DEVICE_BINDING, LocaleController.getString(R.string.NovaDeviceBindingTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaDeviceBindingInfo)));
         items.add(Item.value(
                 ID_APP_PIN,
                 LocaleController.getString(R.string.NovaSettingsAppPin),
@@ -646,6 +656,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaPrivacySettings.global(getContext()).isNightSilentForGroups();
                 } else if (item.id == ID_NIGHT_SILENT_CHANNELS) {
                     checked = NovaPrivacySettings.global(getContext()).isNightSilentForChannels();
+                } else if (item.id == ID_DEVICE_BINDING) {
+                    checked = NovaDeviceLock.isEnabled();
                 } else {
                     checked = item.id != ID_SCREENSHOTS
                             || NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);

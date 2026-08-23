@@ -164,4 +164,11 @@
     <string name="NovaMuteInChatBack">Back</string>
     <string name="NovaMutedMessage">Hidden message</string>
     <string name="NovaPeerIdCopied">ID copied</string>
+    <string name="NovaDeviceChangedTitle">This data belongs to another device</string>
+    <string name="NovaDeviceChangedDescription">The authorisation keys stored here are sealed with a key that lives inside this device and never leaves it. That key is not present, so these files cannot sign anyone in.\n\nIf this is your own phone and you restored the app from a backup or reflashed it, start over and sign in the way a new device does. Nothing on the Telegram servers is affected.</string>
+    <string name="NovaDeviceChangedReset">Start over</string>
+    <string name="NovaDeviceChangedResetConfirm">Every local file of this installation will be removed, including the history that cannot be read here anyway. The session on the servers stays alive until you end it from the device that owns it.</string>
+    <string name="NovaDeviceChangedResetting">Removing the local data…</string>
+    <string name="NovaDeviceBindingTitle">Bind the data to this device</string>
+    <string name="NovaDeviceBindingInfo">A copied application data folder signs nobody in on another device — even with no PIN set. Against code running as this app on this phone only a PIN helps.</string>
 </resources>
