@@ -2,3 +2,12 @@ include ':TMessagesProj'
 include ':TMessagesProj_App'
 include ':TMessagesProj_AppStandalone'
 include ':TMessagesProj_AppTests'
+
+// NovaGram: 12.10.0 added `api project(':jlatexmath')` to TMessagesProj but
+// never declared the project, so the published snapshot does not configure as
+// it stands. The module is the inner library of the jlatexmath submodule; the
+// other projects in that submodule's own settings.gradle - the sample app and
+// the optional font packs - are not ours to build.
+include ':jlatexmath'
+project(':jlatexmath').projectDir =
+        new File(rootDir, 'TMessagesProj/lib/jlatexmath/jlatexmath')
