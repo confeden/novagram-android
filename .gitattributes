@@ -1,0 +1,15 @@
+# NovaGram: theme assets are data, not source - never translate their line
+# endings on checkout.
+#
+# The colours of every built-in theme except the default light one come from
+# these files. Theme.getThemeFileValues() splits them into lines and hands each
+# value to Utilities.parseInt(), which takes the terminating character along
+# with the digits; Integer.parseInt("-1\r") then throws, the exception is
+# swallowed, and the colour becomes 0. The result is a dark theme where every
+# background is black and every piece of text is transparent.
+#
+# Upstream used to guard against exactly this with a BuildConfig
+# .BUILD_HOST_IS_WINDOWS branch in parseInt that matched the number with a
+# regex. 12.10.0 removed both the branch and the flag, so on a Windows checkout
+# with core.autocrlf=true nothing stands between the assets and the parser.
+*.attheme -text
