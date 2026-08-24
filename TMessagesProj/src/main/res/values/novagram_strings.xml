@@ -49,9 +49,9 @@
     <string name="NovaSettingsProject">NovaGram on GitHub</string>
     <string name="NovaSettingsAboutInfo">The version number opens the release it was built from, with the list of what changed. Based on Telegram Android %1$s.</string>
     <string name="NovaFilesHeader">Files</string>
-    <string name="NovaFileNamesTitle">Mask the names of saved files</string>
+    <string name="NovaFileNamesTitle">Mask file names</string>
     <string name="NovaFileNamesInfo">A file the application stores by itself gets a meaningless name instead of the one it came with, so a listing of the Telegram Documents folder tells nothing. Saving a file on purpose from the chat menu keeps its real name.</string>
-    <string name="NovaMetadataTitle">Strip metadata from files you send</string>
+    <string name="NovaMetadataTitle">Strip metadata on send</string>
     <string name="NovaMetadataInfo">Metadata blocks — Exif, XMP, IPTC, comments — are cut out of the JPEG and PNG files you send, which is the camera, the time and the place. Other formats, HEIC, PDF and video among them, are sent as they are.</string>
     <string name="NovaSettingsUpdatesHeader">Updates</string>
     <string name="NovaSettingsUpdateCheck">Check for updates</string>
@@ -124,7 +124,7 @@
     <string name="NovaDohRemove">Remove</string>
     <string name="NovaDohRemoveQuestion">Remove %1$s from the list?</string>
     <string name="NovaCallsHeader">Calls</string>
-    <string name="NovaCallsRelayTitle">Route calls through Telegram servers only</string>
+    <string name="NovaCallsRelayTitle">Route through a relay</string>
     <string name="NovaCallsRelayInfo">The other side never sees your IP address: voice and video go through a relay instead of straight to them. Calls are a little slower, and their traffic passes through Telegram.</string>
     <string name="NovaSendingHeader">Sending messages</string>
     <string name="NovaNightSilentTitle">Silent messages at night</string>
@@ -134,10 +134,10 @@
     <string name="NovaNightSilentChannels">Channels</string>
     <string name="NovaNightSilentInfo">Between 22:00 and 07:00 in local time, outgoing messages arrive without a notification sound. The message is delivered as usual; only the notification is silent.</string>
     <string name="NovaNotificationsHeader">Notifications</string>
-    <string name="NovaPushPreviewTitle">Keep notification text off the servers</string>
+    <string name="NovaPushPreviewTitle">Keep text off the servers</string>
     <string name="NovaPushPreviewInfo">The text inside a push is put there by the Telegram server: the switch forbids that for the whole account, so a push carries the sender name and the text is loaded here, from the message itself. It is an account setting, not a device one: previews switch off on your other devices, and under Doze the text may not arrive.</string>
     <string name="NovaNotificationContentHeader">Notification contents</string>
-    <string name="NovaHideContentTitle">Hide notification contents</string>
+    <string name="NovaHideContentTitle">Hide the contents</string>
     <string name="NovaHideContentInfo">The message text disappears from the notification, and with it photos, stickers and voice messages: in its place there is a line saying that a message has arrived. This hides them from whoever can see the screen, not from the servers: the sender name and the chat name stay where they are.</string>
     <string name="NovaPinStateOn">On</string>
     <string name="NovaPinStateOff">Off</string>
@@ -169,6 +169,6 @@
     <string name="NovaDeviceChangedReset">Start over</string>
     <string name="NovaDeviceChangedResetConfirm">Every local file of this installation will be removed, including the history that cannot be read here anyway. The session on the servers stays alive until you end it from the device that owns it.</string>
     <string name="NovaDeviceChangedResetting">Removing the local data…</string>
-    <string name="NovaDeviceBindingTitle">Bind the data to this device</string>
+    <string name="NovaDeviceBindingTitle">Bind data to this device</string>
     <string name="NovaDeviceBindingInfo">A copied application data folder signs nobody in on another device — even with no PIN set. Against code running as this app on this phone only a PIN helps.</string>
 </resources>

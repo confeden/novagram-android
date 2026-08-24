@@ -49,9 +49,9 @@
     <string name="NovaSettingsProject">NovaGram на GitHub</string>
     <string name="NovaSettingsAboutInfo">Номер версии открывает релиз, из которого собрана эта сборка, со списком изменений. Основано на Telegram Android %1$s.</string>
     <string name="NovaFilesHeader">Файлы</string>
-    <string name="NovaFileNamesTitle">Обезличивать имена сохранённых файлов</string>
+    <string name="NovaFileNamesTitle">Обезличивать имена</string>
     <string name="NovaFileNamesInfo">Файл, который приложение сохраняет само, получает обезличенное имя вместо присланного, поэтому список папки Telegram Documents ничего не рассказывает. Сохранение вручную из меню сообщения оставляет настоящее имя.</string>
-    <string name="NovaMetadataTitle">Очищать метаданные отправляемых файлов</string>
+    <string name="NovaMetadataTitle">Очищать метаданные</string>
     <string name="NovaMetadataInfo">Из отправляемых JPEG и PNG вырезаются блоки метаданных — Exif, XMP, IPTC, комментарии, — то есть камера, время и координаты съёмки. Остальные форматы, включая HEIC, PDF и видео, уходят как есть.</string>
     <string name="NovaSettingsUpdatesHeader">Обновления</string>
     <string name="NovaSettingsUpdateCheck">Проверять обновления</string>
@@ -123,7 +123,7 @@
     <string name="NovaDohRemove">Удалить</string>
     <string name="NovaDohRemoveQuestion">Удалить %1$s из списка?</string>
     <string name="NovaCallsHeader">Звонки</string>
-    <string name="NovaCallsRelayTitle">Звонки только через серверы Telegram</string>
+    <string name="NovaCallsRelayTitle">Только через ретранслятор</string>
     <string name="NovaCallsRelayInfo">Собеседник не увидит ваш IP-адрес: голос и видео идут через ретранслятор, а не напрямую. Связь при этом чуть медленнее, а трафик звонка проходит через Telegram.</string>
     <string name="NovaSendingHeader">Отправка сообщений</string>
     <string name="NovaNightSilentTitle">Беззвучные сообщения ночью</string>
@@ -133,10 +133,10 @@
     <string name="NovaNightSilentChannels">Каналы</string>
     <string name="NovaNightSilentInfo">С 22:00 до 07:00 по местному времени исходящие сообщения приходят получателю без звука. Сообщение доставляется как обычно, беззвучным становится только уведомление.</string>
     <string name="NovaNotificationsHeader">Уведомления</string>
-    <string name="NovaPushPreviewTitle">Не отдавать текст уведомлений серверам</string>
+    <string name="NovaPushPreviewTitle">Не отдавать текст серверам</string>
     <string name="NovaPushPreviewInfo">Текст сообщения в push кладёт сервер Telegram: переключатель запрещает это для всего аккаунта — в push остаётся имя отправителя, а текст подгружается здесь, из самого сообщения. Это настройка аккаунта, а не устройства: предпросмотр гаснет и на других ваших устройствах, а в режиме Doze текст может не дойти.</string>
     <string name="NovaNotificationContentHeader">Содержимое уведомлений</string>
-    <string name="NovaHideContentTitle">Скрывать содержимое уведомлений</string>
+    <string name="NovaHideContentTitle">Скрывать содержимое</string>
     <string name="NovaHideContentInfo">Из уведомления пропадает текст сообщения, а с ним фотографии, стикеры и голосовые сообщения: остаётся строка о том, что пришло сообщение. Скрывает от чужого взгляда на экран, а не от серверов: имя отправителя и название чата остаются на месте.</string>
     <string name="NovaPinStateOn">Включён</string>
     <string name="NovaPinStateOff">Выключен</string>
@@ -168,6 +168,6 @@
     <string name="NovaDeviceChangedReset">Начать заново</string>
     <string name="NovaDeviceChangedResetConfirm">Все локальные файлы этой установки будут удалены, включая переписку, которую здесь всё равно нельзя прочитать. Сеанс на серверах продолжит существовать, пока вы не завершите его с того устройства, которому он принадлежит.</string>
     <string name="NovaDeviceChangedResetting">Удаляем локальные данные…</string>
-    <string name="NovaDeviceBindingTitle">Привязать данные к этому устройству</string>
+    <string name="NovaDeviceBindingTitle">Привязать к устройству</string>
     <string name="NovaDeviceBindingInfo">Скопированная папка данных приложения не даст войти в аккаунт на другом устройстве — даже если PIN не задан. От кода, работающего от имени этого приложения на этом телефоне, защищает только PIN.</string>
 </resources>
