@@ -13,7 +13,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -112,12 +112,24 @@ public final class NovaNotificationPrivacy {
     private static final long[] retriedForUser = new long[UserConfig.MAX_ACCOUNT_COUNT];
 
     /**
-     * Dialogs already sent during this run of the process, per slot. The stored
-     * server value only flips once the server sends the change back, so without
-     * this every further settings update for the same dialog - a mute, a sound -
-     * would fire another request while the first one is still in flight.
+     * How many times each dialog has been sent during this run of the process,
+     * per slot. The stored server value only flips once the server sends the
+     * change back, so without this every further settings update for the same
+     * dialog - a mute, a sound - would fire another request while the first one
+     * is still in flight.
+     *
+     * <p>A count and not a flag, because the flag was removed on every echo so
+     * that a dialog whose exception was re-opened elsewhere would be sent again,
+     * and that made a loop: the same echo that cleared the flag also scheduled
+     * the next sweep, and the server answers a per-dialog {@code show_previews}
+     * it does not keep by echoing the old value back. Two passes still catch a
+     * genuinely re-opened exception; a server that will not store the value
+     * costs two requests per run instead of one every few seconds for ever.</p>
      */
-    private static final HashSet<String>[] pushedThisRun = newPushedSets();
+    private static final HashMap<String, Integer>[] pushedThisRun = newPushedSets();
+
+    /** How many times one dialog may be sent per run. See {@link #pushedThisRun}. */
+    private static final int MAX_DIALOG_PUSHES = 2;
 
     /**
      * Who {@link #pushedThisRun} belongs to. Same reason as for
@@ -141,10 +153,10 @@ public final class NovaNotificationPrivacy {
     private static final long SWEEP_DELAY_MS = 3_000L;
 
     @SuppressWarnings("unchecked")
-    private static HashSet<String>[] newPushedSets() {
-        HashSet<String>[] sets = new HashSet[UserConfig.MAX_ACCOUNT_COUNT];
+    private static HashMap<String, Integer>[] newPushedSets() {
+        HashMap<String, Integer>[] sets = new HashMap[UserConfig.MAX_ACCOUNT_COUNT];
         for (int i = 0; i < sets.length; i++) {
-            sets[i] = new HashSet<>();
+            sets[i] = new HashMap<>();
         }
         return sets;
     }
@@ -269,14 +281,17 @@ public final class NovaNotificationPrivacy {
             editor.remove(SERVER_PREVIEW_PREFIX + key);
         }
         // A fresh answer from the server is newer than anything this client
-        // believes it sent, so the "sent, awaiting confirmation" mark stops
-        // being a reason to stay silent about this dialog. The in-memory set
-        // has to forget it for the same reason, or a dialog whose exception was
-        // opened again elsewhere would stay skipped until the next cold start -
-        // and an Android process lives for days. Posted, because this runs on
-        // the global queue while the set belongs to the main thread.
+        // believes it sent, so the "sent, awaiting confirmation" mark on disk
+        // stops being a reason to stay silent about this dialog.
+        //
+        // The in-memory counter is deliberately NOT reset here. It used to be,
+        // so that a dialog whose exception was opened again elsewhere would not
+        // stay skipped until the next cold start - but the same echo that
+        // cleared it also schedules the next sweep, and the server echoes a
+        // per-dialog show_previews it does not keep, so the two together sent
+        // this request every few seconds for the whole life of the process.
+        // The counter's own limit is what lets a re-opened exception through.
         editor.remove(DIALOG_PUSHED_PREFIX + key);
-        AndroidUtilities.runOnUIThread(() -> pushedSetFor(account).remove(key));
     }
 
     /**
@@ -547,7 +562,7 @@ public final class NovaNotificationPrivacy {
         if (all == null) {
             return dialogs;
         }
-        HashSet<String> sentThisRun = pushedSetFor(account);
+        HashMap<String, Integer> sentThisRun = pushedSetFor(account);
         for (Map.Entry<String, ?> entry : all.entrySet()) {
             String key = entry.getKey();
             if (key == null || !key.startsWith(SERVER_PREVIEW_PREFIX)) {
@@ -572,9 +587,15 @@ public final class NovaNotificationPrivacy {
                 // start and a confirmed one is never sent twice.
                 continue;
             }
-            if (!sentThisRun.add(suffix)) {
+            Integer before = sentThisRun.get(suffix);
+            int already = before == null ? 0 : before;
+            if (already >= MAX_DIALOG_PUSHES) {
+                // The server keeps answering with the old value for this dialog.
+                // Asking again would not change that, and asking for ever is
+                // what this counter exists to stop.
                 continue;
             }
+            sentThisRun.put(suffix, already + 1);
             dialogs.add(new PendingDialog(parsed[0], parsed[1], suffix));
         }
         return dialogs;
@@ -606,9 +627,9 @@ public final class NovaNotificationPrivacy {
         }
     }
 
-    private static HashSet<String> pushedSetFor(int account) {
+    private static HashMap<String, Integer> pushedSetFor(int account) {
         if (account < 0 || account >= pushedThisRun.length) {
-            return new HashSet<>();
+            return new HashMap<>();
         }
         long ownerId = ownerIdFor(account);
         if (pushedForUser[account] != ownerId) {

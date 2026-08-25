@@ -248,8 +248,15 @@ public final class NovaOutgoingMetadata {
                 && (bytes[1] & 0xff) == 0xD8;
     }
 
+    /**
+     * The eight bytes are the whole signature, so eight bytes are enough to
+     * answer. It used to ask for more than eight, and {@link #canStrip} hands
+     * it exactly eight: every PNG was therefore declared unstrippable and went
+     * out with its tEXt chunks intact, while JPEG — whose test asks for more
+     * than three — was cleaned as promised.
+     */
     private static boolean isPng(byte[] bytes) {
-        return bytes.length > 8
+        return bytes.length >= 8
                 && (bytes[0] & 0xff) == 0x89
                 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G'
                 && bytes[4] == '\r' && bytes[5] == '\n'
