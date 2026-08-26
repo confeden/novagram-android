@@ -62,7 +62,7 @@ dependencies {
     implementation 'com.googlecode.mp4parser:isoparser:1.0.6'
     implementation 'com.stripe:stripe-android:2.0.2'
     implementation 'com.google.mlkit:language-id:17.0.6'
-    implementation 'com.android.billingclient:billing:7.1.1'
+    implementation 'com.android.billingclient:billing:8.0.0'
     implementation 'com.google.code.gson:gson:2.11.0'
     implementation 'com.google.guava:guava:31.1-android'
     implementation 'com.google.crypto.tink:tink-android:1.16.0'
@@ -101,8 +101,8 @@ dependencies {
 }
 
 android {
-    compileSdkVersion 35
-    buildToolsVersion '35.0.0'
+    compileSdkVersion 36
+    buildToolsVersion '36.0.0'
     ndkVersion "27.2.12479018"
 
     sourceSets.main.jniLibs.srcDirs = ['./jni/']
@@ -129,7 +129,7 @@ android {
 
     defaultConfig {
         minSdkVersion 21
-        targetSdkVersion 35
+        targetSdkVersion 36
         buildConfigField "int", "TELEGRAM_API_ID", getProps("NOVA_TELEGRAM_API_ID", "0").trim()
         buildConfigField "String", "TELEGRAM_API_HASH", "\"" + getProps("NOVA_TELEGRAM_API_HASH", "").trim() + "\""
 
@@ -139,7 +139,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                version '3.10.2'
+                version '3.22.1'
                 // ANDROID_PLATFORM is the minimum the NATIVE code is built for,
                 // and it has to stay at upstream's value. It stood at
                 // android-34 here and that shipped a client which died at
@@ -159,6 +159,7 @@ android {
                         '-DCMAKE_JOB_POOLS=compile=4;link=2',
                         '-DCMAKE_JOB_POOL_COMPILE=compile',
                         '-DCMAKE_JOB_POOL_LINK=link' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                targets 'tmessages.49'
             }
         }
     }
