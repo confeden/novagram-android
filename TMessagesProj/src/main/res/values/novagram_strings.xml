@@ -55,7 +55,7 @@
     <string name="NovaMetadataInfo">Metadata blocks — Exif, XMP, IPTC, comments — are cut out of the JPEG and PNG files you send, which is the camera, the time and the place. Other formats, HEIC, PDF and video among them, are sent as they are.</string>
     <string name="NovaSettingsUpdatesHeader">Updates</string>
     <string name="NovaSettingsUpdateCheck">Check for updates</string>
-    <string name="NovaSettingsUpdateInfo">At most once every eight hours NovaGram reads a file with the latest version from raw.githubusercontent.com — the only network request it makes outside Telegram, and all it reveals is that the client is running. The package is verified against a checksum, and installing it over the current one keeps chats and settings.</string>
+    <string name="NovaSettingsUpdateInfo">At most once every eight hours NovaGram asks GitHub for the latest release of this project — the only network request it makes outside Telegram, and all it reveals is that the client is running. The package is verified against a checksum, and installing it over the current one keeps chats and settings.</string>
     <string name="NovaUpdateCheckNow">Check for updates</string>
     <string name="NovaUpdateChecking">Checking…</string>
     <string name="NovaUpdateUpToDate">The latest version is installed</string>

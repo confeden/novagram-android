@@ -55,7 +55,7 @@
     <string name="NovaMetadataInfo">Из отправляемых JPEG и PNG вырезаются блоки метаданных — Exif, XMP, IPTC, комментарии, — то есть камера, время и координаты съёмки. Остальные форматы, включая HEIC, PDF и видео, уходят как есть.</string>
     <string name="NovaSettingsUpdatesHeader">Обновления</string>
     <string name="NovaSettingsUpdateCheck">Проверять обновления</string>
-    <string name="NovaSettingsUpdateInfo">Не чаще раза в восемь часов NovaGram читает файл о последней версии на raw.githubusercontent.com — единственный сетевой запрос мимо Telegram, по нему видно только то, что клиент запущен. Пакет проверяется по контрольной сумме, установка поверх текущего сохраняет чаты и настройки.</string>
+    <string name="NovaSettingsUpdateInfo">Не чаще раза в восемь часов NovaGram спрашивает у GitHub последний выпуск проекта — единственный сетевой запрос мимо Telegram, по нему видно только то, что клиент запущен. Пакет проверяется по контрольной сумме, установка поверх текущего сохраняет чаты и настройки.</string>
     <string name="NovaUpdateCheckNow">Проверить обновления</string>
     <string name="NovaUpdateChecking">Проверка…</string>
     <string name="NovaUpdateUpToDate">Установлена последняя версия</string>
