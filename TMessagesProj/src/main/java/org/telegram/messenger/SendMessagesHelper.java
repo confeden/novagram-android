@@ -2699,7 +2699,12 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                                                             messageIds.add(oldId);
                                                             getMessagesController().deleteMessages(messageIds, null, null, newMsgObj1.dialog_id, false, fromMode, false, 0, null, 0, toMode == ChatActivity.MODE_SCHEDULED, message.id);
                                                             ArrayList<MessageObject> messageObjects = new ArrayList<>();
-                                                            messageObjects.add(new MessageObject(msgObj.currentAccount, msgObj.messageOwner, true, true));
+                                                            // NovaGram: msgObj1, not msgObj. This runs once per message of
+                                                            // the batch, and msgObj belongs to the enclosing scope, so
+                                                            // forwarding several messages with a change of schedule mode
+                                                            // handed the interface the same message N times. It reaches
+                                                            // the auto delete queue through this notification as well.
+                                                            messageObjects.add(new MessageObject(msgObj1.currentAccount, msgObj1.messageOwner, true, true));
                                                             getMessagesController().updateInterfaceWithMessages(newMsgObj1.dialog_id, messageObjects, toMode);
                                                             getMediaDataController().increasePeerRaiting(newMsgObj1.dialog_id);
                                                             processSentMessage(oldId);

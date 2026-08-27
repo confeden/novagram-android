@@ -27,6 +27,7 @@ import androidx.collection.LongSparseArray;
 
 import org.telegram.SQLite.SQLiteCursor;
 import org.telegram.SQLite.SQLitePreparedStatement;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.tgnet.NativeByteBuffer;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
@@ -907,6 +908,19 @@ public class LocationController extends BaseController implements NotificationCe
         }
         ArrayList<TLRPC.Message> messages = locationsCache.get(dialogId);
         if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        if (NovaReadStatus.isHidden(currentAccount, dialogId)) {
+            // NovaGram: this is readMessageContents again — the half the other
+            // side sees — for the live locations somebody is sharing here, and
+            // the map re-issues it every few seconds for as long as it is open.
+            // It is the one request of this kind the fork was not intercepting.
+            //
+            // Nothing is held: the gate is asked *before* the minute-long
+            // throttle below is stamped, so the next sweep offers the same read
+            // again. Nothing has been consumed and nothing is lost — which is
+            // also what happens while the rules are still being decrypted and
+            // the gate answers "hidden" for every private dialog.
             return;
         }
         Integer date = lastReadLocationTime.get(dialogId);

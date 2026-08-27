@@ -391,6 +391,49 @@ public class ImageLoader {
         }
     }
 
+    /**
+     * NovaGram: hosts this client will not open a socket to, whatever the server asks.
+     *
+     * <p>Two upstream image paths reach a third party directly, with no proxy, no
+     * DoH and no MTProto in between, so each one hands over the device's real IP
+     * address along with its payload:</p>
+     *
+     * <ul>
+     *   <li>{@code maps.googleapis.com} and {@code static-maps.yandex.ru} — a
+     *       static map of a location message, with the coordinates to six decimal
+     *       places, i.e. sub-metre, in the query string. It is fetched merely
+     *       because the message scrolled into view: nobody tapped anything. Which
+     *       of the two, or neither, is chosen by {@code config.static_maps_provider}
+     *       coming from the server; the default is "telegram", which fetches the
+     *       same picture over MTProto and is left alone.</li>
+     *   <li>{@code itunes.apple.com} — the performer and title of a music message
+     *       someone sent, in a search query, to find cover art. Default Dalvik
+     *       user agent, so the request also announces the platform.</li>
+     * </ul>
+     *
+     * <p>Matching is on the exact host, not a suffix: the in-app browser loads page
+     * images through this same class, and blocking whole domains would break
+     * ordinary sites that have nothing to do with either leak.</p>
+     */
+    private static boolean isBlockedThirdPartyImageHost(String location) {
+        if (location == null) {
+            return false;
+        }
+        String host;
+        try {
+            host = Uri.parse(location.replace("athumb://", "https://")).getHost();
+        } catch (Exception e) {
+            return false;
+        }
+        if (host == null) {
+            return false;
+        }
+        host = host.toLowerCase(Locale.US);
+        return "maps.googleapis.com".equals(host)
+            || "static-maps.yandex.ru".equals(host)
+            || "itunes.apple.com".equals(host);
+    }
+
     private class ArtworkLoadTask extends AsyncTask<Void, Void, String> {
 
         private CacheImage cacheImage;
@@ -408,6 +451,14 @@ public class ImageLoader {
         protected String doInBackground(Void... voids) {
             ByteArrayOutputStream outbuf = null;
             InputStream httpConnectionStream = null;
+            if (isBlockedThirdPartyImageHost(cacheImage.imageLocation.path)) {
+                // NovaGram: refused before the socket. canRetry is cleared so this
+                // fails the way an UnknownHostException already fails here — one
+                // attempt, no retry loop — and the track keeps its placeholder
+                // cover instead of telling Apple what is being listened to.
+                canRetry = false;
+                return null;
+            }
             try {
                 String location = cacheImage.imageLocation.path;
                 URL downloadUrl = new URL(location.replace("athumb://", "https://"));
@@ -553,9 +604,29 @@ public class ImageLoader {
             InputStream httpConnectionStream = null;
             boolean done = false;
 
+            final String blockedCheckUrl = overrideUrl != null ? overrideUrl : (cacheImage.imageLocation == null ? null : cacheImage.imageLocation.path);
+            if (isBlockedThirdPartyImageHost(blockedCheckUrl)) {
+                // NovaGram: refused before the socket. The client no longer fetches a
+                // location preview straight from Google or Yandex, whatever
+                // config.static_maps_provider says — see
+                // isBlockedThirdPartyImageHost. canRetry is cleared so onPostExecute
+                // takes the "permanently failed" branch rather than requeueing the
+                // request for ever. The cell shows its placeholder; with the default
+                // provider ("telegram") nothing reaches here at all, because that
+                // path goes over MTProto.
+                canRetry = false;
+                return false;
+            }
+
             if (!isCancelled()) {
                 try {
                     String location = cacheImage.imageLocation.path;
+                    // NovaGram: unreachable now — the guard above returns for both of
+                    // these hosts. Upstream used this to warm a TL_upload_getWebFile
+                    // for providers 3 and 4 alongside the direct fetch, i.e. it was
+                    // measuring whether the MTProto route works while using the
+                    // direct one. Left in place rather than deleted so the next
+                    // upstream merge lands on the original lines.
                     if (location.startsWith("https://static-maps") || location.startsWith("https://maps.googleapis")) {
                         int provider = MessagesController.getInstance(cacheImage.currentAccount).mapProvider;
                         if (provider == 3 || provider == 4) {

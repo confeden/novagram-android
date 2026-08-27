@@ -93,6 +93,13 @@ public:
     // application is running; every other write happens on its own.
     void novaRewriteConfig();
 
+    // NovaGram: this account's tgnet.dat was sealed and could not be opened
+    // here. Set by loadConfig, i.e. during native_init, which is why Java can
+    // ask for it as soon as that call returns. Per account, not per process:
+    // one account's failed read must not be reported again as the answer for
+    // the next account's good one.
+    bool novaMetForeignConfig() const { return novaForeignConfig; }
+
 private:
     static void *ThreadProc(void *data);
 
@@ -144,6 +151,8 @@ private:
     int32_t instanceNum = 0;
     uint32_t configVersion = 5;
     Config *config = nullptr;
+    // NovaGram: see novaMetForeignConfig().
+    bool novaForeignConfig = false;
 
     std::list<EventObject *> events;
 

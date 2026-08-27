@@ -352,6 +352,16 @@ public class MessagesController extends BaseController implements NotificationCe
     // (novaForgetHeldReads).
     private final ConcurrentHashMap<Long, Integer> novaHeldDialogReads = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ArrayList<Integer>> novaHeldContentReads = new ConcurrentHashMap<>();
+    // NovaGram: the same, for acknowledgements that are not a plain read of a
+    // dialog — a read inside a thread, and the mention, reaction and poll vote
+    // sweeps. Keyed by dialog and topic rather than by the peer, because one
+    // peer can be waiting for their private dialog and for a monoforum thread
+    // at the same time, and the two carry message ids of different peers.
+    private final ConcurrentHashMap<String, NovaHeldSweep> novaHeldSweeps = new ConcurrentHashMap<>();
+    // NovaGram: story reads withheld from the author of the stories, keyed by
+    // that author. Story ids, not message ids — a separate space from
+    // novaHeldDialogReads, and a separate request.
+    private final ConcurrentHashMap<Long, Integer> novaHeldStoryReads = new ConcurrentHashMap<>();
 
     private boolean gettingNewDeleteTask;
     private int currentDeletingTaskTime;
@@ -1261,6 +1271,40 @@ public class MessagesController extends BaseController implements NotificationCe
         public int maxId;
         public int maxDate;
         public long sendRequestTime;
+    }
+
+    /**
+     * NovaGram: an acknowledgement that was not sent because it was not known
+     * yet whether the peer it would reach withholds read receipts. Everything
+     * the request needs is carried here, so releasing it sends exactly what was
+     * withheld and nothing broader: a read inside a thread stays a read of that
+     * thread, a monoforum read still names the channel it belongs to, and a
+     * sweep of mentions does not turn into a read of the whole dialog.
+     *
+     * <p>{@code novaHeldDialogReads} and {@code novaHeldContentReads} keep
+     * covering the ordinary dialog on their own — those two are the ones the
+     * shipped feature was verified on, and they answer a simpler question.</p>
+     */
+    private static class NovaHeldSweep {
+        static final int KIND_HISTORY = 1;
+        static final int KIND_MENTIONS = 2;
+        static final int KIND_REACTIONS = 4;
+        static final int KIND_POLL_VOTES = 8;
+
+        final long dialogId;
+        final long topicId;
+        final long monoForumPeerId;
+        /** The peer who would see the mark, and whose rule therefore decides. */
+        final long receiptPeerId;
+        int kinds;
+        int maxId;
+
+        NovaHeldSweep(long dialogId, long topicId, long monoForumPeerId, long receiptPeerId) {
+            this.dialogId = dialogId;
+            this.topicId = topicId;
+            this.monoForumPeerId = monoForumPeerId;
+            this.receiptPeerId = receiptPeerId;
+        }
     }
 
     public static class PrintingUser {
@@ -6622,6 +6666,8 @@ public class MessagesController extends BaseController implements NotificationCe
         ignoreSetOnline = false;
         novaHeldDialogReads.clear();
         novaHeldContentReads.clear();
+        novaHeldSweeps.clear();
+        novaHeldStoryReads.clear();
 
         Utilities.stageQueue.postRunnable(() -> {
             readTasks.clear();
@@ -14456,12 +14502,7 @@ public class MessagesController extends BaseController implements NotificationCe
                 // yet. Dropping the request would lose it for good — the local
                 // half above has already run, so this message is never offered
                 // again — so it waits for the answer instead.
-                ArrayList<Integer> held = novaHeldContentReads.get(dialogId);
-                if (held == null) {
-                    held = new ArrayList<>();
-                    novaHeldContentReads.put(dialogId, held);
-                }
-                held.add(messageObject.getId());
+                novaHoldContentRead(dialogId, messageObject.getId());
             } else if (!NovaReadStatus.isHidden(currentAccount, dialogId)) {
                 // NovaGram: in a dialog where receipts are withheld only the
                 // local half above runs. readMessageContents is the half the
@@ -14485,6 +14526,13 @@ public class MessagesController extends BaseController implements NotificationCe
         if (NovaReadStatus.isHidden(currentAccount, did)) {
             // NovaGram: marked read locally just above, silent towards the
             // server, for the same reason as in markMessageContentAsRead.
+            if (channelId == 0 && NovaReadStatus.isUndecided(currentAccount, did)) {
+                // Undecided is a wait, not a refusal: this used to drop the
+                // acknowledgement, and the local half above had already run, so
+                // a dialog that then turned out to be the user's own kept the
+                // "not opened yet" dot on the other side for ever.
+                novaHoldContentRead(did, mid);
+            }
             return;
         }
         if (channelId != 0) {
@@ -14570,8 +14618,21 @@ public class MessagesController extends BaseController implements NotificationCe
             // NovaGram: the local half — the self destruction timer of this
             // client — has been set up above. readMessageContents is the half
             // the other side sees, so it is not sent in a dialog where receipts
-            // are withheld. The pending task goes with it: kept, it would be
-            // sent again at every start.
+            // are withheld.
+            if (NovaReadStatus.isUndecided(currentAccount, dialogId)) {
+                // Not an answer yet, so nothing may be destroyed here. The
+                // acknowledgement waits in memory so that it goes out seconds
+                // later if this dialog turns out to be the user's, and the
+                // pending task is deliberately *kept*: it is the only copy of
+                // this acknowledgement that survives the process, and dropping
+                // it used to lose a read taken in the cold start window for
+                // good. Once the rules are known the task runs through here
+                // again — and is then either sent or removed below.
+                novaHoldContentRead(dialogId, mid);
+                return;
+            }
+            // Decided: the dialog withholds receipts for good, so the task has
+            // to go too. Kept, it would be sent again at every start.
             if (newTaskId != 0) {
                 getMessagesStorage().removePendingTask(newTaskId);
             }
@@ -14638,6 +14699,11 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
             });
         }
+        novaReleaseSweeps(dialogId, true);
+        Integer heldStoryId = novaHeldStoryReads.remove(dialogId);
+        if (heldStoryId != null && heldStoryId > 0) {
+            getStoriesController().novaSendStoryRead(dialogId, heldStoryId);
+        }
         Integer heldMaxId = novaHeldDialogReads.remove(dialogId);
         if (heldMaxId == null || heldMaxId <= 0 || DialogObject.isEncryptedDialog(dialogId)) {
             return;
@@ -14662,6 +14728,11 @@ public class MessagesController extends BaseController implements NotificationCe
         if (DialogObject.isEncryptedDialog(dialogId) || !DialogObject.isUserDialog(dialogId)) {
             return;
         }
+        // The stories this person put up and the user watched while the dialog
+        // was hidden. Read from the stored story position, so this holds even
+        // when the watching and the reveal are separated by a restart — see
+        // StoriesController.novaCatchUpStoryReads.
+        getStoriesController().novaCatchUpStoryReads(dialogId);
         Integer localMax = dialogs_read_inbox_max.get(dialogId);
         if (localMax == null || localMax <= 0) {
             return;
@@ -14698,6 +14769,157 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     /**
+     * NovaGram: the thread twin of {@link #novaEnqueueRead}. A read inside a
+     * thread is not a read of the dialog — {@code readDiscussion} and
+     * {@code readSavedHistory} both name the thread — so the task is rebuilt
+     * with the same reply and monoforum peer it was withheld with. Sending it
+     * as an ordinary {@code readHistory} would mark the whole dialog read, and
+     * in a monoforum the message ids do not even belong to it.
+     */
+    private void novaEnqueueThreadRead(long dialogId, long threadId, long monoForumPeerId, int maxId) {
+        if (maxId <= 0 || threadId == 0 || DialogObject.isEncryptedDialog(dialogId)) {
+            return;
+        }
+        Utilities.stageQueue.postRunnable(() -> {
+            String key = dialogId + "_" + threadId;
+            ReadTask task = threadsReadTasksMap.get(key);
+            if (task == null) {
+                task = new ReadTask();
+                task.dialogId = dialogId;
+                task.replyId = threadId;
+                task.monoForumPeerId = monoForumPeerId;
+                task.sendRequestTime = SystemClock.elapsedRealtime();
+                threadsReadTasksMap.put(key, task);
+                repliesReadTasks.add(task);
+            }
+            task.maxId = Math.max(task.maxId, maxId);
+        });
+    }
+
+    /**
+     * NovaGram: the peer a monoforum read really reaches, or {@code 0} when
+     * this is not one. The dialog of a monoforum is the **channel**, while
+     * {@code readSavedHistory} carries the mark to the user in the thread — so
+     * asking the gate about the dialog answers "not hidden" for every one of
+     * them, which is the whole reason this helper exists.
+     */
+    private long novaMonoForumPeer(long dialogId, long threadId) {
+        return threadId != 0 && dialogId < 0 && isMonoForum(dialogId) ? threadId : 0;
+    }
+
+    /** NovaGram: the peer whose rule decides whether this mark may be sent. */
+    private long novaReadReceiptPeer(long dialogId, long threadId) {
+        long monoForumPeerId = novaMonoForumPeer(dialogId, threadId);
+        return monoForumPeerId != 0 ? monoForumPeerId : dialogId;
+    }
+
+    private static String novaSweepKey(long dialogId, long topicId) {
+        return dialogId + "_" + topicId;
+    }
+
+    /**
+     * NovaGram: keeps an acknowledgement back until the peer's rule is known,
+     * for the shapes {@code novaHeldDialogReads} cannot describe. Called only
+     * while {@link NovaReadStatus#isUndecided} says so, i.e. while the answer
+     * may still turn out to be "this dialog is the user's" — and by then
+     * nothing would offer the acknowledgement again, because its local half has
+     * already run.
+     */
+    private void novaHoldSweep(long dialogId, long topicId, long monoForumPeerId, long receiptPeerId, int kind, int maxId) {
+        String key = novaSweepKey(dialogId, topicId);
+        NovaHeldSweep held = novaHeldSweeps.get(key);
+        if (held == null) {
+            held = new NovaHeldSweep(dialogId, topicId, monoForumPeerId, receiptPeerId);
+            novaHeldSweeps.put(key, held);
+        }
+        held.kinds |= kind;
+        if (maxId > held.maxId) {
+            held.maxId = maxId;
+        }
+    }
+
+    /**
+     * NovaGram: keeps back the acknowledgement for one message whose content was
+     * opened. Same reasoning as {@link #novaHoldSweep}: the local half — the
+     * "not played yet" dot here, the self destruction timer there — has already
+     * run, so this message is never offered again.
+     */
+    /**
+     * NovaGram: keeps back the acknowledgement that a story of this person was
+     * watched. Called from {@link StoriesController#markStoryAsRead}, whose
+     * local half has already moved — and stored — this client's read position,
+     * so a dropped request would leave the story read here and unread for its
+     * author with nothing left to offer it again.
+     */
+    public void novaHoldStoryRead(long dialogId, int storyId) {
+        if (storyId <= 0) {
+            return;
+        }
+        Integer previous = novaHeldStoryReads.get(dialogId);
+        if (previous == null || previous < storyId) {
+            novaHeldStoryReads.put(dialogId, storyId);
+        }
+    }
+
+    private void novaHoldContentRead(long dialogId, int mid) {
+        if (mid <= 0) {
+            return;
+        }
+        ArrayList<Integer> held = novaHeldContentReads.get(dialogId);
+        if (held == null) {
+            held = new ArrayList<>();
+            novaHeldContentReads.put(dialogId, held);
+        }
+        if (!held.contains(mid)) {
+            held.add(mid);
+        }
+    }
+
+    /**
+     * NovaGram: the peer's rule is known at last, so everything held for them
+     * is either sent or dropped. Walks the values rather than looking a key up,
+     * because the entries are keyed by dialog and topic while the rule belongs
+     * to the peer — in a monoforum those are different peers.
+     */
+    private void novaReleaseSweeps(long receiptPeerId, boolean send) {
+        if (novaHeldSweeps.isEmpty()) {
+            return;
+        }
+        ArrayList<NovaHeldSweep> released = null;
+        for (NovaHeldSweep held : novaHeldSweeps.values()) {
+            if (held.receiptPeerId != receiptPeerId) {
+                continue;
+            }
+            if (released == null) {
+                released = new ArrayList<>();
+            }
+            released.add(held);
+        }
+        if (released == null) {
+            return;
+        }
+        for (int a = 0, N = released.size(); a < N; a++) {
+            NovaHeldSweep held = released.get(a);
+            novaHeldSweeps.remove(novaSweepKey(held.dialogId, held.topicId));
+            if (!send) {
+                continue;
+            }
+            if ((held.kinds & NovaHeldSweep.KIND_HISTORY) != 0) {
+                novaEnqueueThreadRead(held.dialogId, held.topicId, held.monoForumPeerId, held.maxId);
+            }
+            if ((held.kinds & NovaHeldSweep.KIND_MENTIONS) != 0) {
+                novaSendMentionsRead(held.dialogId, held.topicId);
+            }
+            if ((held.kinds & NovaHeldSweep.KIND_REACTIONS) != 0) {
+                novaSendReactionsRead(held.dialogId, held.topicId);
+            }
+            if ((held.kinds & NovaHeldSweep.KIND_POLL_VOTES) != 0) {
+                novaSendPollVotesRead(held.dialogId, held.topicId);
+            }
+        }
+    }
+
+    /**
      * NovaGram: settles every read that is still being held, for all dialogs at
      * once. The gate answers "withhold" until the rules are decrypted, so a
      * read taken in that window is held for a dialog that may never appear in
@@ -14706,11 +14928,19 @@ public class MessagesController extends BaseController implements NotificationCe
      * the rules are known. Main thread.
      */
     public void novaSettleHeldReads() {
-        if (novaHeldDialogReads.isEmpty() && novaHeldContentReads.isEmpty()) {
+        if (novaHeldDialogReads.isEmpty() && novaHeldContentReads.isEmpty()
+                && novaHeldSweeps.isEmpty() && novaHeldStoryReads.isEmpty()) {
             return;
         }
         HashSet<Long> dialogIds = new HashSet<>(novaHeldDialogReads.keySet());
         dialogIds.addAll(novaHeldContentReads.keySet());
+        dialogIds.addAll(novaHeldStoryReads.keySet());
+        for (NovaHeldSweep held : novaHeldSweeps.values()) {
+            // The peer, not the dialog the sweep was taken in: a monoforum
+            // thread is held under the channel's id and decided by the user's
+            // rule.
+            dialogIds.add(held.receiptPeerId);
+        }
         for (Long dialogId : dialogIds) {
             if (dialogId == null || NovaReadStatus.isUndecided(currentAccount, dialogId)) {
                 continue;
@@ -14731,6 +14961,11 @@ public class MessagesController extends BaseController implements NotificationCe
     public void novaForgetHeldReads(long dialogId) {
         novaHeldContentReads.remove(dialogId);
         novaHeldDialogReads.remove(dialogId);
+        novaReleaseSweeps(dialogId, false);
+        // The story read is dropped here too, and losing it costs nothing: a
+        // reveal catches up from the stored story position rather than from
+        // this map, and a deleted conversation takes the rule with it anyway.
+        novaHeldStoryReads.remove(dialogId);
     }
 
     private void completeReadTask(ReadTask task) {
@@ -14840,6 +15075,26 @@ public class MessagesController extends BaseController implements NotificationCe
             return;
         }
         getMessagesStorage().resetMentionsCount(dialogId, topicId, 0);
+        // NovaGram: readMentions is an acknowledgement like any other — it names
+        // somebody's messages and says they were looked at — so it goes through
+        // the same gate, and the gate lives here rather than at the callers:
+        // two of them stand one line away from markDialogAsRead, which is
+        // already covered, and a third would be forgotten. The counter reset
+        // above is local and stays; for Telegram the mentions remain unread,
+        // which is the limit the user is told about.
+        long receiptPeerId = novaReadReceiptPeer(dialogId, topicId);
+        if (NovaReadStatus.isHidden(currentAccount, receiptPeerId)) {
+            if (NovaReadStatus.isUndecided(currentAccount, receiptPeerId)) {
+                novaHoldSweep(dialogId, topicId, novaMonoForumPeer(dialogId, topicId),
+                        receiptPeerId, NovaHeldSweep.KIND_MENTIONS, 0);
+            }
+            return;
+        }
+        novaSendMentionsRead(dialogId, topicId);
+    }
+
+    /** NovaGram: the server half of {@link #markMentionsAsRead}. */
+    private void novaSendMentionsRead(long dialogId, long topicId) {
         TLRPC.TL_messages_readMentions req = new TLRPC.TL_messages_readMentions();
         req.peer = getInputPeer(dialogId);
         if (topicId != 0) {
@@ -14972,22 +15227,37 @@ public class MessagesController extends BaseController implements NotificationCe
             monoForumPeerId = 0;
         }
 
-        if (createReadTask && NovaReadStatus.isHidden(currentAccount, dialogId)) {
+        // NovaGram: asked of the peer who would see the mark, not of the dialog.
+        // In a monoforum the dialog is the channel while completeReadTask sends
+        // readSavedHistory to the user in monoForumPeerId, so asking the channel
+        // answers "not hidden" for every one of them.
+        final long novaReceiptPeerId = monoForumPeerId != 0 ? monoForumPeerId : dialogId;
+
+        if (createReadTask && NovaReadStatus.isHidden(currentAccount, novaReceiptPeerId)) {
             // NovaGram: the local half above has already run, so the dialog
             // looks read here, while nothing about it reaches the server and
             // the other side never sees the read marks. Placed after the local
             // work on purpose — the user still wants their own unread counter
             // and notifications cleared.
             createReadTask = false;
-            if (threadId == 0
-                    && maxPositiveId > 0
-                    && NovaReadStatus.isUndecided(currentAccount, dialogId)) {
+            if (maxPositiveId > 0 && NovaReadStatus.isUndecided(currentAccount, novaReceiptPeerId)) {
                 // Not decided yet, so this is a wait rather than a drop: the
                 // dialog may still turn out to be one the user started, and by
                 // then nothing would ask for this read again.
-                Integer previous = novaHeldDialogReads.get(dialogId);
-                if (previous == null || previous < maxPositiveId) {
-                    novaHeldDialogReads.put(dialogId, maxPositiveId);
+                if (threadId == 0) {
+                    Integer previous = novaHeldDialogReads.get(dialogId);
+                    if (previous == null || previous < maxPositiveId) {
+                        novaHeldDialogReads.put(dialogId, maxPositiveId);
+                    }
+                } else {
+                    // A read inside a thread — a bot forum, or a monoforum —
+                    // used to be dropped here rather than held. It cannot go
+                    // into novaHeldDialogReads: releasing it from there would
+                    // send a readHistory for the whole dialog, and in a
+                    // monoforum those message ids are not even the dialog's.
+                    // It waits with its thread instead.
+                    novaHoldSweep(dialogId, threadId, monoForumPeerId, novaReceiptPeerId,
+                            NovaHeldSweep.KIND_HISTORY, maxPositiveId);
                 }
             }
         }
@@ -21762,6 +22032,24 @@ public class MessagesController extends BaseController implements NotificationCe
             topicsController.markAllReactionsAsRead(-dialogId, topicId);
         }
         getMessagesStorage().updateUnreadReactionsCount(dialogId, topicId, 0);
+        // NovaGram: same gate as every other acknowledgement — readReactions
+        // tells the server which of somebody's messages were looked at. The
+        // counters above are local and stay cleared; the interface notification
+        // below is this process talking to itself and always runs.
+        long receiptPeerId = novaReadReceiptPeer(dialogId, topicId);
+        if (NovaReadStatus.isHidden(currentAccount, receiptPeerId)) {
+            if (NovaReadStatus.isUndecided(currentAccount, receiptPeerId)) {
+                novaHoldSweep(dialogId, topicId, novaMonoForumPeer(dialogId, topicId),
+                        receiptPeerId, NovaHeldSweep.KIND_REACTIONS, 0);
+            }
+        } else {
+            novaSendReactionsRead(dialogId, topicId);
+        }
+        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_REACTIONS_READ);
+    }
+
+    /** NovaGram: the server half of {@link #markReactionsAsRead}. */
+    private void novaSendReactionsRead(long dialogId, long topicId) {
         TLRPC.TL_messages_readReactions req = new TLRPC.TL_messages_readReactions();
         req.peer = getInputPeer(dialogId);
 
@@ -21777,7 +22065,6 @@ public class MessagesController extends BaseController implements NotificationCe
         getConnectionsManager().sendRequest(req, (response, error) -> {
 
         });
-        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_REACTIONS_READ);
     }
 
     public void markPollVotesAsRead(long dialogId, long topicId) {
@@ -21793,6 +22080,22 @@ public class MessagesController extends BaseController implements NotificationCe
             topicsController.markAllPollVotesAsRead(-dialogId, topicId);
         }
         getMessagesStorage().updateUnreadPollVotesCount(dialogId, topicId, 0);
+        // NovaGram: see markReactionsAsRead — the same gate, for the same
+        // reason.
+        long receiptPeerId = novaReadReceiptPeer(dialogId, topicId);
+        if (NovaReadStatus.isHidden(currentAccount, receiptPeerId)) {
+            if (NovaReadStatus.isUndecided(currentAccount, receiptPeerId)) {
+                novaHoldSweep(dialogId, topicId, novaMonoForumPeer(dialogId, topicId),
+                        receiptPeerId, NovaHeldSweep.KIND_POLL_VOTES, 0);
+            }
+        } else {
+            novaSendPollVotesRead(dialogId, topicId);
+        }
+        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_REACTIONS_READ);
+    }
+
+    /** NovaGram: the server half of {@link #markPollVotesAsRead}. */
+    private void novaSendPollVotesRead(long dialogId, long topicId) {
         TLRPC.TL_messages_readPollVotes req = new TLRPC.TL_messages_readPollVotes();
         req.peer = getInputPeer(dialogId);
 
@@ -21806,7 +22109,6 @@ public class MessagesController extends BaseController implements NotificationCe
             }
         }
         getConnectionsManager().sendRequest(req, (response, error) -> {});
-        NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_REACTIONS_READ);
     }
 
     public SponsoredMessagesInfo getSponsoredMessages(long dialogId) {

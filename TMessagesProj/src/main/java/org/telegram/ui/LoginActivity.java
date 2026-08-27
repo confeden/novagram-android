@@ -144,6 +144,7 @@ import org.telegram.messenger.SRPHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaContactSync;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.RequestDelegate;
@@ -334,7 +335,13 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
     private boolean checkPermissions = true;
     private boolean checkShowPermissions = true;
     private boolean newAccount;
-    private boolean syncContacts = true;
+    /**
+     * NovaGram: unchecked, and the checkbox is drawn for the first account too
+     * (see the phone view below). Upstream started at true and only showed the
+     * box when a second account was being added, so a fresh install uploaded
+     * the whole address book without the question ever appearing.
+     */
+    private boolean syncContacts = NovaContactSync.DEFAULT_FOR_NEW_INSTALL;
     private boolean testBackend = false;
 
     @ActivityMode
@@ -701,7 +708,11 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         }
         if (savedInstanceState != null) {
             currentViewNum = savedInstanceState.getInt("currentViewNum", 0);
-            syncContacts = savedInstanceState.getInt("syncContacts", 1) == 1;
+            // NovaGram: a missing key here is a state that was saved without an
+            // answer, and the fork's answer to "was not asked" is no.
+            syncContacts = savedInstanceState.getInt(
+                    "syncContacts",
+                    NovaContactSync.DEFAULT_FOR_NEW_INSTALL ? 1 : 0) == 1;
             if (currentViewNum >= VIEW_CODE_MESSAGE && currentViewNum <= VIEW_CODE_CALL) {
                 int time = savedInstanceState.getInt("open");
                 if (time != 0 && Math.abs(System.currentTimeMillis() / 1000 - time) >= 24 * 60 * 60) {
@@ -2463,7 +2474,11 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             });
 
             int bottomMargin = 72;
-            if (newAccount && activityMode == MODE_LOGIN) {
+            // NovaGram: `newAccount &&` dropped. The box is the only place the
+            // address-book upload is ever mentioned before it happens, and
+            // upstream hid it from exactly the person who has not seen it yet —
+            // somebody signing in for the first time on a fresh install.
+            if (activityMode == MODE_LOGIN) {
                 syncContactsBox = new CheckBoxCell(context, 2);
                 syncContactsBox.setText(getString("SyncContacts", R.string.SyncContacts), "", syncContacts, false);
                 addView(syncContactsBox, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.MATCH_PARENT, Gravity.LEFT | Gravity.TOP, 16, 0, 16 + (LocaleController.isRTL && AndroidUtilities.isSmallScreen() ? 56 : 0), 0));

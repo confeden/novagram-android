@@ -2,6 +2,7 @@ package org.telegram.messenger.novagram.privacy;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
@@ -158,6 +159,18 @@ public final class NovaEraseEvidence {
             }
             if (!chosen) {
                 return false;
+            }
+            if (!message.out) {
+                // Taking a reaction back is still a reaction of this account
+                // leaving the client, so it goes through the same hook as the
+                // one in the chat. It cannot reveal anything new - a chosen
+                // reaction is one the other side has already been shown, named
+                // - but the rule here may still say "hidden" when the reaction
+                // was put on from another device, because the rules do not
+                // sync. Leaving that standing would show the user a banner
+                // promising protection this dialog lost long ago.
+                NovaReadStatus.noteReactionSent(
+                        account, new MessageObject(account, message, false, false));
             }
             TLRPC.TL_messages_sendReaction req = new TLRPC.TL_messages_sendReaction();
             req.peer = MessagesController.getInstance(account).getInputPeer(dialogId);

@@ -408,23 +408,26 @@ public class AddressBarList extends FrameLayout {
 
         final boolean hadSuggestions = !suggestions.isEmpty();
 
-        if (TextUtils.isEmpty(input)) {
-            suggestions.clear();
-            listView.adapter.update(true);
-            if (hadSuggestions != !suggestions.isEmpty()) {
-                listView.layoutManager.scrollToPositionWithOffset(0, 0);
-            }
-            return;
+        // NovaGram: upstream fires one HTTP request per keystroke at
+        // SearchEngine.getCurrent().getAutocompleteURL(input). Three things make
+        // that the wrong default for this fork. The address bar is where a URL is
+        // typed, so the prefixes leaving the device are half-finished addresses of
+        // pages about to be visited, letter by letter. The destination is not the
+        // client's choice: SearchEngine reads SearchEngine<N>AutocompleteURL out of
+        // the langpack, so the server names the host that receives them, and can
+        // rename it. And HttpGetTask is a plain HttpURLConnection — no Telegram
+        // proxy, no DoH — so the search engine also gets the real IP address for
+        // each keystroke.
+        //
+        // Only the remote suggestion list is dropped, and it stays permanently
+        // empty. fillItems() then keeps showing the "go to what you typed" row and
+        // the locally stored recent searches, which is what the list looks like
+        // before the first suggestion arrives anyway.
+        suggestions.clear();
+        listView.adapter.update(true);
+        if (hadSuggestions != !suggestions.isEmpty()) {
+            listView.layoutManager.scrollToPositionWithOffset(0, 0);
         }
-
-        lastTask = new HttpGetTask(result -> AndroidUtilities.runOnUIThread(() -> {
-            suggestions.clear();
-            suggestions.addAll(SearchEngine.getCurrent().extractSuggestions(result));
-            listView.adapter.update(true);
-            if (hadSuggestions != !suggestions.isEmpty()) {
-                listView.layoutManager.scrollToPositionWithOffset(0, 0);
-            }
-        })).execute(SearchEngine.getCurrent().getAutocompleteURL(input));
     }
 
     @Override

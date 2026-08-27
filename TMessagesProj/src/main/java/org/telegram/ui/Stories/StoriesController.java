@@ -43,6 +43,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.VideoEditedInfo;
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.messenger.support.LongSparseIntArray;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.NativeByteBuffer;
@@ -1280,6 +1281,34 @@ public class StoriesController {
         return markStoryAsRead(userStories, storyItem, false);
     }
 
+    /**
+     * NovaGram: this is a read receipt, and a louder one than a tick. The
+     * author of a story is shown the list of who watched it, by name, and
+     * {@code stories.readStories} is one of only two requests through which
+     * this client ever tells the server that a story was watched — the other is
+     * {@code stories.incrementStoryViews} in {@link StoriesList#markAsRead}.
+     * Everything else in the stories API either fetches (which cannot register
+     * a view: {@code getAllStories} pulls every followed peer's stories at
+     * start-up and they stay unread, the ring being computed locally from
+     * {@code max_read_id}) or is the author reading their own viewer list
+     * ({@code getStoriesViews}, {@code getStoryViewsList}). So withholding this
+     * request really does withhold the view, and in a dialog the fork is
+     * hiding, the name in that list would reach precisely the person the
+     * hiding is against.
+     *
+     * <p>Held, not dropped: the local half below has already moved this
+     * client's read position — and that position is written to
+     * {@code stories_counter} — so a dropped request would leave "read here,
+     * unread everywhere" with nothing to offer it again. What is held goes out
+     * when the dialog is revealed; a revealed dialog also catches up from the
+     * stored position, so unlike an ordinary receipt this one survives a
+     * restart between the viewing and the reveal.</p>
+     *
+     * <p>The stated limit: while the dialog is hidden the author's own clients
+     * keep the story unread, and so will this account's other devices and this
+     * one after a re-sync from the server. That is the same limit the feature
+     * already carries for messages.</p>
+     */
     public boolean markStoryAsRead(TL_stories.PeerStories userStories, TL_stories.StoryItem storyItem, boolean profile) {
         if (storyItem == null || userStories == null) {
             return false;
@@ -1297,14 +1326,41 @@ public class StoriesController {
             if (!profile) {
                 storiesStorage.updateMaxReadId(dialogId, newReadId);
             }
-            TL_stories.TL_stories_readStories req = new TL_stories.TL_stories_readStories();
-            req.peer = MessagesController.getInstance(currentAccount).getInputPeer(dialogId);
-            req.max_id = storyItem.id;
-            ConnectionsManager.getInstance(currentAccount).sendRequest(req, null);
+            if (NovaReadStatus.isHidden(currentAccount, dialogId)) {
+                // See the note above the method. The local half has run; only
+                // the half the author sees is kept back.
+                MessagesController.getInstance(currentAccount).novaHoldStoryRead(dialogId, storyItem.id);
+            } else {
+                novaSendStoryRead(dialogId, storyItem.id);
+            }
             NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.storiesReadUpdated);
             return true;
         }
         return false;
+    }
+
+    /** NovaGram: the server half of {@link #markStoryAsRead}. */
+    public void novaSendStoryRead(long dialogId, int maxId) {
+        if (maxId <= 0) {
+            return;
+        }
+        TL_stories.TL_stories_readStories req = new TL_stories.TL_stories_readStories();
+        req.peer = MessagesController.getInstance(currentAccount).getInputPeer(dialogId);
+        req.max_id = maxId;
+        ConnectionsManager.getInstance(currentAccount).sendRequest(req, null);
+    }
+
+    /**
+     * NovaGram: the dialog has been revealed, so the story position this client
+     * already stands at has to reach the server. Read from the stored position
+     * rather than from anything kept in memory, which is what lets this survive
+     * a restart between watching the story and revealing the dialog — the
+     * position lives in {@code stories_counter} and is loaded at start-up.
+     * Stories that have expired in the meantime are simply gone, and the
+     * request says nothing about them.
+     */
+    public void novaCatchUpStoryReads(long dialogId) {
+        novaSendStoryRead(dialogId, getMaxStoriesReadId(dialogId));
     }
 
     public int getMaxStoriesReadId(long dialogId) {
@@ -3725,6 +3781,20 @@ public class StoriesController {
             if (seenStories.contains(storyId)) return false;
             seenStories.add(storyId);
             saveCache();
+            if (NovaReadStatus.isHidden(currentAccount, dialogId)) {
+                // NovaGram: the second of the two requests that put this
+                // account's name into the author's list of viewers, and the
+                // only one reached from a stories *list* — the profile grid and
+                // the archive, i.e. stories that have already expired from the
+                // ring. Dropped rather than held, unlike readStories: nothing
+                // local depends on it (seenStories above is this client's own
+                // cache and is already written), and sending it later, when the
+                // dialog is revealed, would enter the account into the viewer
+                // list of a story nobody is watching any more — a view that
+                // arrives out of nowhere, hours after the fact.
+                NotificationCenter.getInstance(currentAccount).postNotificationName(NotificationCenter.storiesReadUpdated);
+                return true;
+            }
             TL_stories.TL_stories_incrementStoryViews req = new TL_stories.TL_stories_incrementStoryViews();
             req.peer = MessagesController.getInstance(currentAccount).getInputPeer(dialogId);
             req.id.add(storyId);

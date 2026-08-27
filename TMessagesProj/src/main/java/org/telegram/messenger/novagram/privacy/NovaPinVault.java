@@ -337,6 +337,38 @@ public final class NovaPinVault {
     }
 
     /**
+     * "Nothing was ever enrolled on this device" - the state a fresh install is
+     * in, and the only one in which the absence of a PIN may be taken as an
+     * answer rather than as a failure. It is what {@link #inspect()} reports as
+     * {@code NOT_ENROLLED}, asked without decrypting anything.
+     *
+     * <p>{@link #isEnrolled()} cannot answer this question. It says false for a
+     * half-present vault as well, and a half-present vault means a PIN <em>was</em>
+     * created and then something happened to one of its two halves - which is a
+     * state the gate has to report, not one it may walk past.</p>
+     *
+     * <p>A Keystore that will not answer is not an absence either, so that says
+     * false too. The cost of being wrong in that direction is a PIN prompt on a
+     * device that has no PIN; the cost of the other direction is no prompt on a
+     * device that has one.</p>
+     *
+     * <p>Deliberately outside {@code PROCESS_LOCK}, unlike everything else here.
+     * The session asks this from the main thread, and the lock is held for the
+     * whole of a verification - six hundred thousand PBKDF2 rounds - so taking
+     * it would stall the interface behind a PIN check. Nothing is lost by
+     * reading without it, because both half-states are transient and both read
+     * as "present": an enrollment creates the key before it writes the file, and
+     * a removal deletes the file before it deletes the key.</p>
+     */
+    public boolean isAbsent() {
+        try {
+            return !stateFile.isFile() && !NovaPinKeyStore.containsKey();
+        } catch (GeneralSecurityException e) {
+            return false;
+        }
+    }
+
+    /**
      * Removes the application PIN after the user has proved they know it.
      *
      * <p>The check is {@link #verify}, unchanged and whole, so everything it

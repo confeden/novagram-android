@@ -2,7 +2,10 @@ package org.telegram.messenger.novagram.privacy;
 
 import android.content.Context;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.FileLog;
 
 /**
  * What NovaGram adds to a Telegram call.
@@ -94,6 +97,81 @@ public final class NovaCallPolicy {
         return address.indexOf(':') >= 0
                 ? looksLikeIpv6(address)
                 : looksLikeIpv4(address);
+    }
+
+    /**
+     * The same rule, applied to the join response of a group or conference
+     * call.
+     *
+     * <p>Those calls take their addresses from a JSON payload the server
+     * sends, not from {@code phoneConnection}, so the filter around
+     * {@code Instance.Endpoint} never sees them. Each {@code candidate.ip}
+     * goes into {@code rtc::SocketAddress} inside tgcalls exactly like a
+     * reflector address does, and a name there is left unresolved and handed
+     * to {@code getaddrinfo}. It is the only way a group call can produce a
+     * DNS query at all.</p>
+     *
+     * <p>Not gated on {@link #relayOnly}: no call of any kind needs DNS, so a
+     * name is dropped whatever the setting says — the same as for one to
+     * one. Returns the payload untouched when there is nothing to drop, so
+     * the stock path stays byte for byte what the server sent.</p>
+     */
+    public static String filterJoinResponseAddresses(String payload) {
+        if (payload == null || payload.length() == 0) {
+            return payload;
+        }
+        try {
+            final JSONObject root = new JSONObject(payload);
+            final JSONObject transport = root.optJSONObject("transport");
+            if (transport == null) {
+                // A stream payload carries no transport, so no addresses.
+                return payload;
+            }
+            final JSONArray candidates = transport.optJSONArray("candidates");
+            if (candidates == null || candidates.length() == 0) {
+                return payload;
+            }
+            final JSONArray accepted = new JSONArray();
+            for (int i = 0; i < candidates.length(); i++) {
+                final JSONObject candidate = candidates.optJSONObject(i);
+                final String address = candidate == null
+                        ? null
+                        : candidate.optString("ip", null);
+                if (acceptableCallAddress(address)) {
+                    accepted.put(candidate);
+                } else {
+                    FileLog.w("novagram: refused group call address '"
+                            + address + "', not a numeric one");
+                }
+            }
+            if (accepted.length() == candidates.length()) {
+                return payload;
+            }
+            if (accepted.length() == 0) {
+                // The call will not connect now, and without this line the
+                // reason is indistinguishable from a network failure.
+                FileLog.e("novagram: refused every address the group call "
+                        + "server sent");
+            }
+            transport.put("candidates", accepted);
+            root.put("transport", transport);
+            final String filtered = root.toString();
+            if (filtered == null || filtered.length() == 0) {
+                // Cannot happen with an object we have just parsed, but the
+                // fallback has to be the safe direction rather than the
+                // original payload: a payload without a transport is refused
+                // by the native side and asks nobody for a name.
+                FileLog.e("novagram: could not rebuild the join response");
+                return "{}";
+            }
+            return filtered;
+        } catch (Exception e) {
+            // A payload we cannot read is one the native side cannot read
+            // either - it refuses to parse it and adds no candidate at all,
+            // so passing it on leaks nothing.
+            FileLog.e(e);
+            return payload;
+        }
     }
 
     private static boolean looksLikeIpv4(String address) {

@@ -2028,6 +2028,13 @@ public class ContactsController extends BaseController {
             if (!hasContactsPermission() || account == null || !hasContactsWritePermission()) {
                 return;
             }
+            // NovaGram: the same promise as the upload. Upstream asks only for
+            // WRITE_CONTACTS here, so with synchronisation off the phone book
+            // still filled up with every Telegram contact — names, numbers and
+            // "Telegram Profile" rows the user never asked to have on disk.
+            if (!getUserConfig().syncContacts) {
+                return;
+            }
             final SharedPreferences settings = MessagesController.getMainSettings(currentAccount);
             final boolean forceUpdate = !settings.getBoolean("contacts_updated_v7", false);
             if (forceUpdate) {
@@ -2249,6 +2256,12 @@ public class ContactsController extends BaseController {
         if (!hasContactsWritePermission()) {
             return -1;
         }
+        // Reached from "add to contacts" and from TL_updateContactsReset alike.
+        // With synchronisation off nothing of Telegram's is written into the
+        // device address book; the contact still exists on the Telegram side.
+        if (!getUserConfig().syncContacts) {
+            return -1;
+        }
         long res = -1;
         synchronized (observerLock) {
             ignoreChanges = true;
@@ -2282,6 +2295,12 @@ public class ContactsController extends BaseController {
 
     private void applyContactToPhoneBook(ArrayList<ContentProviderOperation> query, TLRPC.User user) {
         if (user == null) {
+            return;
+        }
+        // The single place every write into the device address book is built,
+        // so the gate is repeated here and not only at the two callers: a new
+        // caller arriving with an upstream merge must not reopen this quietly.
+        if (!getUserConfig().syncContacts) {
             return;
         }
         int rawContactId = query.size();

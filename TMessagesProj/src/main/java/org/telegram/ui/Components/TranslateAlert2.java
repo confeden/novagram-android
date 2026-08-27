@@ -52,6 +52,8 @@ import com.google.common.base.Charsets;
 import org.json.JSONArray;
 import org.json.JSONTokener;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.BuildVars;
+import org.telegram.messenger.FileLog;
 import org.telegram.messenger.Emoji;
 import org.telegram.messenger.LanguageDetector;
 import org.telegram.messenger.LocaleController;
@@ -313,14 +315,16 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
             reqId = null;
         }
 
-        final String method = MessagesController.getInstance(currentAccount).translationsManualEnabled;
-        if ("alternative".equalsIgnoreCase(method)) {
-            translateAlt();
-            return;
-        }/* else if ("system".equalsIgnoreCase(method)) {
-            translateSystem();
-            return;
-        }*/
+        // NovaGram: upstream reads translationsManualEnabled — an app-config string
+        // that arrives from the server — and, when it says "alternative", posts the
+        // message text to translate.googleapis.com instead of asking Telegram. Which
+        // third party gets to read a private message would then be a server
+        // decision, which is exactly the decision a privacy fork may not delegate.
+        // The flag is ignored here: this sheet always uses messages.translateText
+        // over MTProto, so the text goes only to the party that already has it, over
+        // the connection the user chose, proxy included.
+        //
+        // final String method = MessagesController.getInstance(currentAccount).translationsManualEnabled;
 
         String lang = toLanguage;
         if (lang != null) {
@@ -375,9 +379,10 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
             req.to_lang = normalizeLanguage(lang);
             reqId = ConnectionsManager.getInstance(currentAccount).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
                 reqId = null;
-                if (err != null && "TRANSLATIONS_DISABLED_ALT".equalsIgnoreCase(err.text)) {
-                    translateAlt();
-                } else if (res != null) {
+                // NovaGram: TRANSLATIONS_DISABLED_ALT is the server saying "I will not
+                // translate this, use the third-party path". Upstream obeys and hands
+                // the text to Google. The fork treats it as an ordinary failure.
+                if (res != null) {
                     firstTranslation = false;
                     TLRPC.TL_textWithEntities text = preprocess(textWithEntities, res);
                     CharSequence translated = SpannableStringBuilder.valueOf(text.text);
@@ -414,9 +419,9 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
         reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (res, err) -> {
             AndroidUtilities.runOnUIThread(() -> {
                 reqId = null;
-                if (err != null && "TRANSLATIONS_DISABLED_ALT".equalsIgnoreCase(err.text)) {
-                    translateAlt();
-                } else if (res instanceof TLRPC.TL_messages_translateResult &&
+                // NovaGram: see above — no third-party fallback on
+                // TRANSLATIONS_DISABLED_ALT.
+                if (res instanceof TLRPC.TL_messages_translateResult &&
                     !((TLRPC.TL_messages_translateResult) res).result.isEmpty() &&
                     ((TLRPC.TL_messages_translateResult) res).result.get(0) != null &&
                     ((TLRPC.TL_messages_translateResult) res).result.get(0).text != null
@@ -440,55 +445,9 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
         });
     }
 
-    public static final String[] userAgents = new String[] {
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:94.0) Gecko/20100101 Firefox/94.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36"
-    };
-    private void translateAlt() {
-        final String text = reqText == null ? "" : reqText.toString();
-        String _fromLng = fromLanguage;
-        if (_fromLng != null) {
-            _fromLng = _fromLng.split("_")[0];
-        }
-        if ("nb".equals(_fromLng)) {
-            _fromLng = "no";
-        }
-        final String fromLng = _fromLng;
-        String _toLng = toLanguage;
-        if (_toLng != null) {
-            _toLng = _toLng.split("_")[0];
-        }
-        if ("nb".equals(_toLng)) {
-            _toLng = "no";
-        }
-        final String toLng = _toLng;
-
-        alternativeTranslate(text, fromLng, toLng, (res, rateLimit) -> {
-            if (res != null) {
-                firstTranslation = false;
-                textView.setText(preprocessText(res));
-                adapter.updateMainView(textViewContainer);
-            } else {
-                if (isDismissed()) return;
-//                if ("system".equals(MessagesController.getInstance(currentAccount).translationsManualEnabled)) {
-//                    translateSystem();
-//                    return;
-//                }
-                if (firstTranslation) {
-                    dismiss();
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, LocaleController.getString(rateLimit ? R.string.TranslationFailedAlert1 : R.string.TranslationFailedAlert2));
-                } else {
-                    BulletinFactory.of((FrameLayout) containerView, resourcesProvider).createErrorBulletin(LocaleController.getString(rateLimit ? R.string.TranslationFailedAlert1 : R.string.TranslationFailedAlert2)).show();
-                    headerView.toLanguageTextView.setText(languageName(toLanguage = prevToLanguage));
-                    adapter.updateMainView(textViewContainer);
-                }
-            }
-        });
-    }
+    // NovaGram: the desktop User-Agent list and translateAlt(), the sheet's entry
+    // into the third-party translator, are removed together with the request they
+    // served. See alternativeTranslate() below for what was there and why.
 
     private static int lastIndexOfSafe(String text, String target, int start, int end) {
         int idx = text.lastIndexOf(target, end - 1);
@@ -518,124 +477,40 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
         return result;
     }
 
+    /**
+     * NovaGram: refused, always.
+     *
+     * <p>This is the single door to translate.googleapis.com. Behind it upstream
+     * sends the message text verbatim in a GET query string, over a plain
+     * {@link HttpURLConnection} — no Telegram proxy, no DoH, and a User-Agent
+     * picked at random from a list of desktop browsers to make the request look
+     * like something it is not. The request carries the private text, the source
+     * and target languages and, being a direct connection, the real IP address.</p>
+     *
+     * <p>Whether it happens at all is decided by {@code translationsAutoEnabled} /
+     * {@code translationsManualEnabled}, two app-config strings that come from the
+     * server, and by the {@code TRANSLATIONS_DISABLED_ALT} error the server may
+     * return to any translate request. A privacy fork cannot leave "does a message
+     * go to Google" as something a server flag flips, so the door is nailed shut
+     * here rather than at each caller: {@code TranslateController} reaches it from
+     * two more places and is not this file.</p>
+     *
+     * <p>The callback is still invoked, with a null result, so every caller runs
+     * its ordinary failure path — the "translation failed" bulletin, and
+     * {@code toggleTranslatingDialog(dialogId, false)} in the auto-translate case.
+     * Dropping the callback instead would leave a chat stuck in "translating"
+     * for ever.</p>
+     */
     public static void alternativeTranslate(String text, String fromLng, String toLng, Utilities.Callback2<String, Boolean> done) {
         if (done == null) return;
-        if (fromLng == null) {
-            LanguageDetector.detectLanguage(text, lng -> {
-                alternativeTranslate(text, lng, toLng, done);
-            }, e -> {
-                alternativeTranslate(text, "en", toLng, done);
-            });
-            return;
+        if (BuildVars.LOGS_ENABLED) {
+            FileLog.d("NovaGram: refused third-party translation of " + (text == null ? 0 : text.length()) + " characters into " + toLng);
         }
-        final String etext = Uri.encode(text);
-        if (etext.length() > 5000) {
-            ArrayList<String> parts = cut(etext, 5000);
-            ArrayList<String> results = new ArrayList<>();
-            for (int i = 0; i < parts.size(); ++i) {
-                results.add(null);
-            }
-
-            final boolean[] fullyDone = new boolean[1];
-            for (int i = 0; i < parts.size(); ++i) {
-                final int index = i;
-                alternativeTranslateInternal(parts.get(i), fromLng, toLng, (res, rateLimit) -> {
-                    if (fullyDone[0]) return;
-                    if (res != null) {
-                        results.set(index, res);
-                        boolean allDone = true;
-                        for (int j = 0; j < results.size(); ++j) {
-                            if (results.get(j) == null) {
-                                allDone = false;
-                                break;
-                            }
-                        }
-                        if (allDone) {
-                            fullyDone[0] = true;
-                            done.run(TextUtils.join("", results), false);
-                        }
-                    } else {
-                        fullyDone[0] = true;
-                        done.run(null, rateLimit);
-                    }
-                });
-            }
-        } else {
-            alternativeTranslateInternal(etext, fromLng, toLng, done);
-        }
-    }
-    private static void alternativeTranslateInternal(String text, String fromLng, String toLng, Utilities.Callback2<String, Boolean> done) {
-        if (done == null) return;
-        new Thread() {
-            @Override
-            public void run() {
-                String uri;
-                HttpURLConnection connection = null;
-                try {
-                    uri = "https://translate.goo";
-                    uri += "gleapis.com/transl";
-                    uri += "ate_a";
-                    uri += "/singl";
-                    uri += "e?client=gtx&sl=" + Uri.encode(fromLng) + "&tl=" + Uri.encode(toLng) + "&dt=t" + "&ie=UTF-8&oe=UTF-8&otf=1&ssel=0&tsel=0&kc=7&dt=at&dt=bd&dt=ex&dt=ld&dt=md&dt=qca&dt=rw&dt=rm&dt=ss&q=";
-                    uri += text;
-                    connection = (HttpURLConnection) new URI(uri).toURL().openConnection();
-                    connection.setRequestMethod("GET");
-                    connection.setRequestProperty("User-Agent", userAgents[(int) Math.round(Math.random() * (userAgents.length - 1))]);
-                    connection.setRequestProperty("Content-Type", "application/json");
-
-                    StringBuilder textBuilder = new StringBuilder();
-                    try (Reader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), Charsets.UTF_8))) {
-                        int c = 0;
-                        while ((c = reader.read()) != -1) {
-                            textBuilder.append((char) c);
-                        }
-                    }
-                    String jsonString = textBuilder.toString();
-
-                    JSONTokener tokener = new JSONTokener(jsonString);
-                    JSONArray array = new JSONArray(tokener);
-                    JSONArray array1 = array.getJSONArray(0);
-                    String sourceLanguage = null;
-                    try {
-                        sourceLanguage = array.getString(2);
-                    } catch (Exception e2) {}
-                    if (sourceLanguage != null && sourceLanguage.contains("-")) {
-                        sourceLanguage = sourceLanguage.substring(0, sourceLanguage.indexOf("-"));
-                    }
-                    String result = "";
-                    for (int i = 0; i < array1.length(); ++i) {
-                        String blockText = array1.getJSONArray(i).getString(0);
-                        if (blockText != null && !blockText.equals("null"))
-                            result += /*(i > 0 ? "\n" : "") +*/ blockText;
-                    }
-                    if (text.length() > 0 && text.charAt(0) == '\n')
-                        result = "\n" + result;
-                    final String finalResult = result;
-                    AndroidUtilities.runOnUIThread(() -> {
-                        if (done != null)
-                            done.run(finalResult, false);
-                    });
-                } catch (Exception e) {
-                    try {
-                        Log.e("translate", "failed to translate a text " + (connection != null ? connection.getResponseCode() : null) + " " + (connection != null ? connection.getResponseMessage() : null));
-                    } catch (IOException ioException) {
-                        ioException.printStackTrace();
-                    }
-                    e.printStackTrace();
-
-                    try {
-                        final boolean rateLimit = connection != null && connection.getResponseCode() == 429;
-                        AndroidUtilities.runOnUIThread(() -> {
-                            done.run(null, rateLimit);
-                        });
-                    } catch (Exception e2) {
-                        AndroidUtilities.runOnUIThread(() -> {
-                            done.run(null, false);
-                        });
-                    }
-                }
-            }
-        }.start();
+        // The request itself — the URL assembled from fragments so it does not
+        // grep, the randomly chosen desktop User-Agent, the text in the query
+        // string — is deleted rather than merely skipped, so that a caller added
+        // by a future upstream sync cannot reach it by accident.
+        AndroidUtilities.runOnUIThread(() -> done.run(null, false));
     }
 
 //    private ArrayList<Runnable> cancelTrackingDownloads = new ArrayList<>();

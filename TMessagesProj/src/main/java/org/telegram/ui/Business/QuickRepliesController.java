@@ -17,6 +17,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.NativeByteBuffer;
+import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_update;
@@ -775,6 +776,17 @@ public class QuickRepliesController {
         if (req.peer == null) return;
         req.shortcut_id = reply.id;
 
+        // The answer used to be thrown away, so the messages the user has just
+        // sent only turned up whenever the next update happened to expose the
+        // gap in pts and force a difference. Every other send path applies its
+        // own updates, and NovaGram needs it here too: a message that never
+        // enters a dialog is a message auto-delete never sees.
+        final RequestDelegate sentQuickReply = (res2, err2) -> {
+            if (res2 instanceof TLRPC.Updates) {
+                MessagesController.getInstance(currentAccount).processUpdates((TLRPC.Updates) res2, false);
+            }
+        };
+
         MessagesStorage storage = MessagesStorage.getInstance(currentAccount);
         storage.getStorageQueue().postRunnable(() -> {
             ArrayList<Integer> ids = new ArrayList<>();
@@ -807,7 +819,7 @@ public class QuickRepliesController {
                             for (int i = 0; i < ids.size(); ++i) {
                                 req.random_id.add(Utilities.random.nextLong());
                             }
-                            ConnectionsManager.getInstance(currentAccount).sendRequest(req, null);
+                            ConnectionsManager.getInstance(currentAccount).sendRequest(req, sentQuickReply);
                         } else {
                             FileLog.e("received " + res + " " + err + " on getQuickReplyMessages when trying to send quick reply");
                         }
@@ -817,7 +829,7 @@ public class QuickRepliesController {
                     for (int i = 0; i < ids.size(); ++i) {
                         req.random_id.add(Utilities.random.nextLong());
                     }
-                    ConnectionsManager.getInstance(currentAccount).sendRequest(req, null);
+                    ConnectionsManager.getInstance(currentAccount).sendRequest(req, sentQuickReply);
                 }
             });
         });

@@ -23,6 +23,7 @@ import androidx.annotation.Nullable;
 //import com.google.mlkit.nl.translate.Translator;
 //import com.google.mlkit.nl.translate.TranslatorOptions;
 
+import org.telegram.messenger.novagram.privacy.NovaTranslationPolicy;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.InputSerializedData;
 import org.telegram.tgnet.OutputSerializedData;
@@ -217,6 +218,15 @@ public class TranslateController extends BaseController {
 
     private boolean isChatAutoTranslated(long dialogId) {
         if (!isDialogTranslatable(dialogId)) {
+            return false;
+        }
+        // NovaGram: the channel's own autotranslation flag is not a decision
+        // this user made. Upstream feeds it into isTranslatingDialog below as
+        // the *default*, so opening such a channel is enough to start sending
+        // post text to Telegram. The flag is ignored by default; a dialog the
+        // user switched on by hand carries an explicit entry in
+        // translatingDialogs and never reaches this method's answer.
+        if (NovaTranslationPolicy.isChannelFlagIgnored()) {
             return false;
         }
         final TLRPC.Chat chat = getMessagesController().getChat(-dialogId);
@@ -1102,26 +1112,18 @@ public class TranslateController extends BaseController {
                     }
                 }
 
-                final String method = getMessagesController().translationsAutoEnabled;
-                if ("alternative".equals(method) || "system".equals(method)) {
-                    final String toLanguage = pendingTranslation1.language;
-                    for (int i = 0; i < pendingTranslation1.messageIds.size(); ++i) {
-                        final int id = pendingTranslation1.messageIds.get(i);
-                        final Utilities.Callback4<Boolean, Integer, TLRPC.TL_textWithEntities, String> _callback = pendingTranslation1.callbacks.get(i);
-                        final String _text = pendingTranslation1.messageTexts.get(i).text;
-                        TranslateAlert2.alternativeTranslate(_text, null, toLanguage, (result, rateLimit) -> {
-                            if (result != null) {
-                                final TLRPC.TL_textWithEntities resultWithEntities = new TLRPC.TL_textWithEntities();
-                                resultWithEntities.text = result;
-                                _callback.run(isTranscription, id, resultWithEntities, toLanguage);
-                            } else {
-                                toggleTranslatingDialog(dialogId, false);
-                                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, getString(rateLimit ? R.string.TranslationFailedAlert1 : R.string.TranslationFailedAlert2));
-                            }
-                        });
-                    }
-                    return;
-                }/* else if ("system".equals(method)) {
+                // NovaGram: the server can set translationsAutoEnabled to
+                // "alternative", and upstream then sent the message text to
+                // translate.googleapis.com over plain HTTP, outside the proxy
+                // and outside DoH. That request is gone, so this branch had
+                // nothing left to call - and failing here returns before the
+                // cleanup further down, which would leave every message of the
+                // batch marked "translating" for ever and raise one error
+                // bulletin per message. Translation now always goes through
+                // messages.translateText, which is what the rest of this
+                // method does. The block below was already commented out by
+                // upstream and stays that way.
+                /* else if ("system".equals(method)) {
                     final String toLanguage = pendingTranslation1.language;
                     for (int i = 0; i < pendingTranslation1.messageIds.size(); ++i) {
                         final int id = pendingTranslation1.messageIds.get(i);
@@ -1170,20 +1172,15 @@ public class TranslateController extends BaseController {
                             callbacks.get(i).run(isTranscription, ids.get(i), TranslateAlert2.preprocess(texts.get(i), translated.get(i)), toLanguage);
                         }
                     } else if (err != null && "TRANSLATIONS_DISABLED_ALT".equalsIgnoreCase(err.text)) {
-                        for (int i = 0; i < ids.size(); ++i) {
-                            final int id = ids.get(i);
-                            final Utilities.Callback4<Boolean, Integer, TLRPC.TL_textWithEntities, String> _callback = callbacks.get(i);
-                            final String _text = texts.get(i).text;
-                            TranslateAlert2.alternativeTranslate(_text, null, toLanguage, (result, rateLimit) -> {
-                                if (result != null) {
-                                    final TLRPC.TL_textWithEntities resultWithEntities = new TLRPC.TL_textWithEntities();
-                                    resultWithEntities.text = result;
-                                    _callback.run(isTranscription, id, resultWithEntities, toLanguage);
-                                } else {
-                                    toggleTranslatingDialog(dialogId, false);
-                                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, getString(rateLimit ? R.string.TranslationFailedAlert1 : R.string.TranslationFailedAlert2));
-                                }
-                            });
+                        // NovaGram: the fallback this branch used to take sent
+                        // the text to translate.googleapis.com in the clear,
+                        // and that request is gone. Fail the way an invalid
+                        // language fails - once, not once per message, and
+                        // with the callbacks run so no spinner is left behind.
+                        toggleTranslatingDialog(dialogId, false);
+                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, getString(R.string.TranslationFailedAlert2));
+                        for (int i = 0; i < callbacks.size(); ++i) {
+                            callbacks.get(i).run(isTranscription, ids.get(i), null, pendingTranslation1.language);
                         }
                     } else if (err != null && "TO_LANG_INVALID".equals(err.text)) {
                         toggleTranslatingDialog(dialogId, false);

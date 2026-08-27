@@ -3218,14 +3218,23 @@ import java.util.concurrent.TimeoutException;
     @DoNotInline
     public static PlayerId registerMediaMetricsListener(
         Context context, ExoPlayerImpl player, boolean usePlatformDiagnostics) {
+      // NovaGram: the check has to come before MediaMetricsListener.create(), not
+      // after it. create() calls MediaMetricsManager.createPlaybackSession(), so
+      // merely constructing the listener already opens a session with the platform
+      // media metrics service and gives it a log session id — the listener only
+      // decides whether the codec, duration, error and network-type events are then
+      // reported into it. Returning LOG_SESSION_ID_NONE here is the same answer the
+      // player already handles on a device where the service is missing, so nothing
+      // downstream has to change.
+      if (!usePlatformDiagnostics) {
+        return new PlayerId(LogSessionId.LOG_SESSION_ID_NONE);
+      }
       @Nullable MediaMetricsListener listener = MediaMetricsListener.create(context);
       if (listener == null) {
         Log.w(TAG, "MediaMetricsService unavailable.");
         return new PlayerId(LogSessionId.LOG_SESSION_ID_NONE);
       }
-      if (usePlatformDiagnostics) {
-        player.addAnalyticsListener(listener);
-      }
+      player.addAnalyticsListener(listener);
       return new PlayerId(listener.getLogSessionId());
     }
   }

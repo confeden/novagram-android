@@ -11,12 +11,15 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.Utilities;
 import org.telegram.messenger.browser.Browser;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
+import org.telegram.messenger.novagram.privacy.NovaContactSync;
 import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaFileNames;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
@@ -29,6 +32,7 @@ import org.telegram.messenger.novagram.privacy.NovaPrivacyFeature;
 import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
+import org.telegram.messenger.novagram.privacy.NovaTranslationPolicy;
 import org.telegram.messenger.novagram.update.NovaUpdateChecker;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -82,6 +86,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_CALLS_RELAY = 22;
     private static final int ID_DOH = 23;
     private static final int ID_DEVICE_BINDING = 24;
+    private static final int ID_AUTOTRANSLATE = 25;
+    private static final int ID_CONTACT_SYNC = 26;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -171,12 +177,35 @@ public class NovaGramSettingsActivity extends BaseFragment {
             getParentActivity().startActivity(intent);
         } else if (item.id == ID_DEVICE_BINDING) {
             boolean enabled = !NovaDeviceLock.isEnabled();
-            NovaDeviceLock.setEnabled(getParentActivity(), enabled);
             ((TextCheckCell) view).setChecked(enabled);
+            Context context = getParentActivity();
+            // Off the main thread. Switching this on can create the Keystore
+            // key, which costs hundreds of milliseconds and more again when the
+            // device tries StrongBox first, and it then rewrites the config for
+            // every running account. The row is ticked at once so the tap still
+            // feels immediate; the subtitle catches up when the work is done,
+            // because it says what the binding is really doing and that is not
+            // the same answer as the switch.
+            Utilities.globalQueue.postRunnable(() -> {
+                NovaDeviceLock.setEnabled(context, enabled);
+                AndroidUtilities.runOnUIThread(this::buildItems);
+            });
         } else if (item.id == ID_SCREENSHOTS) {
             NovaPrivacySettings settings = NovaPrivacySettings.global(getParentActivity());
             boolean enabled = !settings.isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);
             settings.setFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION, enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+            // The flag on this activity's window is re-evaluated only when it
+            // is told to. Without this the switch would take effect at the next
+            // start, which is after the screenshot it was meant to prevent.
+            LaunchActivity.novaRefreshFlagSecure();
+        } else if (item.id == ID_AUTOTRANSLATE) {
+            boolean enabled = !NovaTranslationPolicy.isChannelFlagIgnored();
+            NovaTranslationPolicy.setChannelFlagIgnored(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_CONTACT_SYNC) {
+            boolean enabled = !NovaContactSync.isEnabled(currentAccount);
+            NovaContactSync.setEnabled(currentAccount, enabled);
             ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_AUTO_DELETE) {
             boolean enabled = !NovaAutoDelete.isEnabled(currentAccount);
@@ -414,6 +443,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private void buildItems() {
         items.clear();
         boolean appPinSet = isAppPinSet();
+        // The rewrite that follows a toggle is queued on the network thread, so
+        // what was remembered about the files on disk is dropped here and read
+        // again rather than reported from a stale answer.
+        NovaDeviceLock.refreshDiskState();
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsSecurityHeader)));
         // First in the section on purpose: it works with no PIN set, and it is
         // the only thing between a copied data directory and the account.
@@ -447,6 +480,16 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsPrivacyHeader)));
         items.add(Item.check(ID_SCREENSHOTS, LocaleController.getString(R.string.NovaSettingsScreenshotProtection)));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaSettingsScreenshotInfo)));
+
+        items.add(Item.check(ID_AUTOTRANSLATE, LocaleController.getString(R.string.NovaAutoTranslateTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaAutoTranslateInfo)));
+
+        // The one row here whose switch is the plain thing rather than the
+        // protection: it is the same bit as Telegram's own "Sync contacts", and
+        // giving it the opposite polarity in this screen would make two
+        // switches for one value disagree on sight.
+        items.add(Item.check(ID_CONTACT_SYNC, LocaleController.getString(R.string.NovaContactSyncTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaContactSyncInfo)));
 
         items.add(Item.header(LocaleController.getString(R.string.NovaAutoDeleteHeader)));
         items.add(Item.check(ID_AUTO_DELETE, LocaleController.getString(R.string.NovaAutoDeleteEnable)));
@@ -544,6 +587,27 @@ public class NovaGramSettingsActivity extends BaseFragment {
         }
     }
 
+    /**
+     * The device binding row says what is happening, not what was asked for.
+     * The switch alone kept claiming the data was bound while a Keystore that
+     * had refused a key meant nothing was being sealed at all.
+     */
+    private int deviceBindingStateText() {
+        switch (NovaDeviceLock.state()) {
+            case BOUND:
+                return R.string.NovaDeviceBindingStateOn;
+            case PENDING:
+                return R.string.NovaDeviceBindingStatePending;
+            case UNAVAILABLE:
+                return R.string.NovaDeviceBindingStateUnavailable;
+            case FOREIGN:
+                return R.string.NovaDeviceBindingStateForeign;
+            case OFF:
+            default:
+                return R.string.NovaDeviceBindingStateOff;
+        }
+    }
+
     private String baseVersion() {
         try {
             Context context = getContext();
@@ -621,6 +685,16 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 } else {
                     cell.setTextAndValue(item.text.toString(), item.value.toString(), divider);
                 }
+            } else if (item.viewType == VIEW_TYPE_CHECK && item.id == ID_DEVICE_BINDING) {
+                // Two different answers, and the row shows both. The switch is
+                // what the owner asked for; the subtitle is what the binding is
+                // actually doing, which differs whenever the Keystore refuses.
+                ((TextCheckCell) holder.itemView).setTextAndValueAndCheck(
+                        item.text.toString(),
+                        LocaleController.getString(deviceBindingStateText()),
+                        NovaDeviceLock.isEnabled(),
+                        true,
+                        divider);
             } else if (item.viewType == VIEW_TYPE_CHECK && item.id == ID_NIGHT_SILENT) {
                 // The window belongs in a subtitle: on one line with the label
                 // it does not fit the row and gets cut off mid-way.
@@ -656,8 +730,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaPrivacySettings.global(getContext()).isNightSilentForGroups();
                 } else if (item.id == ID_NIGHT_SILENT_CHANNELS) {
                     checked = NovaPrivacySettings.global(getContext()).isNightSilentForChannels();
-                } else if (item.id == ID_DEVICE_BINDING) {
-                    checked = NovaDeviceLock.isEnabled();
+                } else if (item.id == ID_AUTOTRANSLATE) {
+                    checked = NovaTranslationPolicy.isChannelFlagIgnored();
+                } else if (item.id == ID_CONTACT_SYNC) {
+                    checked = NovaContactSync.isEnabled(currentAccount);
                 } else {
                     checked = item.id != ID_SCREENSHOTS
                             || NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);

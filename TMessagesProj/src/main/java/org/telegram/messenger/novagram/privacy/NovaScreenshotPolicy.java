@@ -10,6 +10,36 @@ public final class NovaScreenshotPolicy {
     private NovaScreenshotPolicy() {
     }
 
+    /**
+     * Whether the application's own window must carry {@code FLAG_SECURE},
+     * regardless of any chat being open.
+     *
+     * <p>Upstream ties the whole-window flag to
+     * {@code SharedConfig.passcodeHash.length() > 0}, so in the configuration
+     * everyone actually runs — no passcode — the recents-screen snapshot and
+     * every capture app see the chat list, the open conversation and these
+     * settings. This answer does not ask about the passcode: the fork's
+     * screenshot protection is a switch of its own, and it is on by default.
+     * </p>
+     *
+     * <p>{@link NovaPrivacyContract.ScreenshotPolicy#ADAPTIVE} keeps its
+     * meaning for {@link #shouldSecureChat}, which is a statement about one
+     * peer. It cannot narrow the window flag: on Android every chat is drawn
+     * into this same window, so "capturable in a public channel" would mean
+     * "capturable in the chat list a swipe away". Only the explicit
+     * {@code ALLOW_ALL} escape turns the flag off.</p>
+     */
+    public static boolean shouldSecureWindow(Context context) {
+        if (context == null) {
+            return true;
+        }
+        NovaPrivacySettings settings = NovaPrivacySettings.global(context);
+        if (!settings.isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION)) {
+            return false;
+        }
+        return settings.getScreenshotPolicy() != NovaPrivacyContract.ScreenshotPolicy.ALLOW_ALL;
+    }
+
     public static boolean shouldSecureChat(
             Context context,
             TLRPC.Chat chat,

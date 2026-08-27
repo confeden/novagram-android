@@ -2,10 +2,12 @@ package org.telegram.messenger.novagram.privacy;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Environment;
 import android.text.TextUtils;
 import android.util.Base64;
 
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.SerializedData;
@@ -21,8 +23,25 @@ import java.io.File;
  * the data. An interrupted run therefore never leaves a client that would ask
  * for a PIN again and hand the data back.</p>
  *
+ * <p>Within the removal the order is: stop config writes, sweep, destroy the
+ * keys, sweep again. Destroying the device key before the files meant that any
+ * {@code saveConfig()} landing in between wrote the datacenter authorization
+ * keys in the clear - a plaintext window in the middle of the one operation
+ * that exists to leave no plaintext.</p>
+ *
  * <p>The server side logout is best effort by nature, because it needs a
  * working network. The local destruction is not conditional on it.</p>
+ *
+ * <p><b>What deletion means here.</b> {@link File#delete()} is an unlink. On
+ * flash storage with wear levelling, overwriting a file first would not erase
+ * the physical pages either - the controller writes the new bytes elsewhere -
+ * so it would buy nothing but time, and this runs while someone is standing
+ * over the phone. What makes the wipe worth something is the key destruction:
+ * the Keystore entries behind {@code tgnet.dat}, the PIN vault, the auto-delete
+ * queue, the read-status rules and the muted-member list are removed, so every
+ * copy of those files taken beforehand stays shut. The files that were never
+ * sealed - {@code cache4.db} and the saved media (N16) - are only unlinked, and
+ * that is the honest limit.</p>
  */
 public final class NovaEmergencyWipe {
     private NovaEmergencyWipe() {
@@ -52,7 +71,19 @@ public final class NovaEmergencyWipe {
         requestServerLogout();
         clearLocalAccounts();
         destroyPinState();
+        // Before a single file goes and before the device key does. Everything
+        // below can be running alongside the network thread, and a saveConfig()
+        // landing between "the key is gone" and "the file is gone" wrote the
+        // real datacenter authorization keys unsealed. N15 states the rule the
+        // other way round - the key stays until what depends on it has been
+        // rewritten - and here nothing is being rewritten at all, so the
+        // honest form of it is: stop the writes, then destroy both.
+        NovaDeviceLock.forbidConfigWrites();
+        deleteStorage(target);
         destroyDeviceKey();
+        // A second pass. The first one raced whatever was still running; this
+        // one runs after the writes have been stopped and the keys destroyed,
+        // so anything it finds was written unsealed and has to go.
         deleteStorage(target);
         // Re-armed last, because the sweep above removes the marker together
         // with the PIN state: the decoy must not inherit a PIN prompt, and the
@@ -80,19 +111,20 @@ public final class NovaEmergencyWipe {
         NovaMutedMembers.shutdown();
 
         destroyPinState();
+        NovaDeviceLock.forbidConfigWrites();
+        deleteStorage(target);
         destroyDeviceKey();
         deleteStorage(target);
     }
 
     private static void destroyDeviceKey() {
-        // Order matters. The secret goes out of the network library first: a
-        // config write landing after deleteStorage() removed the binding file
-        // would seal tgnet.dat to a secret nothing can recover, and the next
-        // start would meet the "another device" screen instead of the decoy.
+        // Runs after the files are gone and after config writes have been
+        // stopped, never before either. The secret goes out of the network
+        // library first so that nothing over there holds it, and only then is
+        // the Keystore entry destroyed - that destruction is the part that
+        // makes this wipe worth anything, because it is what turns every copy
+        // of the sealed files taken beforehand into bytes with no key.
         NovaDeviceLock.forget();
-        // The stale Keystore key opens nothing anyway - what it wrapped went
-        // with the binding file - but it is removed so that the next start
-        // creates a binding of its own.
         try {
             NovaDeviceKeyStore.delete();
         } catch (Throwable ignored) {
@@ -222,6 +254,8 @@ public final class NovaEmergencyWipe {
         deleteChildren(context.getCacheDir());
         deleteChildren(context.getNoBackupFilesDir());
         deleteChildren(ApplicationLoader.getFilesDirFixed());
+        // Covers the debug log directory too: it is getExternalFilesDir(null)/logs,
+        // and these are walked recursively.
         File[] external = context.getExternalCacheDirs();
         if (external != null) {
             for (File dir : external) {
@@ -240,6 +274,82 @@ public final class NovaEmergencyWipe {
         if (parent != null) {
             deleteChildren(new File(parent, "shared_prefs"));
             deleteChildren(new File(parent, "databases"));
+        }
+        deleteSavedMedia(context);
+    }
+
+    /**
+     * Everything the app saved outside its own directories: the "Telegram
+     * Images", "Telegram Video", "Telegram Documents", "Telegram Audio",
+     * "Telegram Files" and "Telegram Stories" folders.
+     *
+     * <p>Where those sit is not a constant. Before scoped storage they are
+     * under {@code /sdcard/Telegram}; from API 30 under the app's own external
+     * files directory and, for the two the gallery shows, under the app's
+     * external media directory; and either of those moves to an SD card when
+     * one is chosen for storage. So the answer is asked of the app itself -
+     * {@link FileLoader#checkDirectory} returns exactly the directories
+     * {@code ImageLoader} resolved - and the well-known locations are swept as
+     * well, because the wipe can run from the cold-start gate, before
+     * {@code ImageLoader} has ever built that map.</p>
+     *
+     * <p>What this cannot reach, and the fork must not claim it does: anything
+     * copied into the system gallery through MediaStore ({@code Pictures/Telegram}
+     * and the like). Those rows belong to MediaStore, and deleting them on
+     * Android 11 and later needs a consent dialog - which is precisely what a
+     * wipe entered under duress cannot stop to show.</p>
+     */
+    private static void deleteSavedMedia(Context context) {
+        int[] mediaTypes = {
+                FileLoader.MEDIA_DIR_IMAGE,
+                FileLoader.MEDIA_DIR_AUDIO,
+                FileLoader.MEDIA_DIR_VIDEO,
+                FileLoader.MEDIA_DIR_DOCUMENT,
+                FileLoader.MEDIA_DIR_CACHE,
+                FileLoader.MEDIA_DIR_FILES,
+                FileLoader.MEDIA_DIR_STORIES,
+                FileLoader.MEDIA_DIR_IMAGE_PUBLIC,
+                FileLoader.MEDIA_DIR_VIDEO_PUBLIC,
+        };
+        for (int type : mediaTypes) {
+            File dir;
+            try {
+                dir = FileLoader.checkDirectory(type);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            if (dir == null) {
+                continue;
+            }
+            deleteChildren(dir);
+            // One level up is the "Telegram" container these all live in. Its
+            // other folders - the ones this installation never happened to
+            // register, because the writability probe failed for them - hold
+            // the same kind of file and are swept with it. Only ever one level,
+            // and only when the name matches, so nothing can climb out into the
+            // rest of the storage volume.
+            File container = dir.getParentFile();
+            if (container != null && "Telegram".equals(container.getName())) {
+                deleteChildren(container);
+            }
+        }
+        // The pre-scoped-storage location, asked directly. The map above is
+        // empty when ImageLoader has not run, and on Android 9 - the version
+        // this matters most on - this is where the saved media is.
+        try {
+            deleteChildren(new File(Environment.getExternalStorageDirectory(), "Telegram"));
+        } catch (Throwable ignored) {
+        }
+        try {
+            File[] mediaDirs = context.getExternalMediaDirs();
+            if (mediaDirs != null) {
+                for (File dir : mediaDirs) {
+                    if (dir != null) {
+                        deleteChildren(new File(dir, "Telegram"));
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 

@@ -167,6 +167,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -404,7 +405,13 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                WebView.setWebContentsDebuggingEnabled(SharedConfig.debugWebView && !isVerifyingAge());
+                // NovaGram: SharedConfig.debugWebView is a plain persisted flag, not
+                // tied to the build type, so upstream lets a release build expose
+                // every WebView in the process to any local adb/DevTools client —
+                // cookies, session tokens and page contents included. The remote
+                // debugging bridge is a development tool and is refused outright in
+                // a release build; in a debug build the switch keeps working.
+                WebView.setWebContentsDebuggingEnabled(BuildVars.DEBUG_VERSION && SharedConfig.debugWebView && !isVerifyingAge());
             }
         } catch (Exception e) {
             FileLog.e(e);
@@ -462,10 +469,16 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
             useragent = useragent.replaceAll("\\(Linux; Android.+;[^)]+\\)", "(Linux; Android " + Build.VERSION.RELEASE + "; K)");
             useragent = useragent.replaceAll("Version/[\\d\\.]+ ", "");
             if (bot) {
+                // NovaGram: upstream appends manufacturer, model, SDK level and the
+                // device performance class here, and only for bots — the ordinary
+                // in-app browser two lines above rewrites all of that to "K". That
+                // asymmetry handed every bot's server a precise device fingerprint
+                // that the same server could not get from the browser. Only the
+                // client version is kept, because a mini app legitimately needs to
+                // know which Telegram build it is running inside; everything that
+                // narrows the answer to one handset is gone.
                 final PackageInfo packageInfo = ApplicationLoader.applicationContext.getPackageManager().getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), 0);
-                final int perf = SharedConfig.getDevicePerformanceClass();
-                final String perfName = perf == SharedConfig.PERFORMANCE_CLASS_LOW ? "LOW" : perf == SharedConfig.PERFORMANCE_CLASS_AVERAGE ? "AVERAGE" : "HIGH";
-                useragent += " Telegram-Android/" + packageInfo.versionName + " (" + capitalizeFirst(Build.MANUFACTURER) + " " + Build.MODEL + "; Android " + Build.VERSION.RELEASE + "; SDK " + Build.VERSION.SDK_INT + "; " + perfName + ")";
+                useragent += " Telegram-Android/" + packageInfo.versionName;
             }
             settings.setUserAgentString(useragent);
         } catch (Exception e) {
@@ -1028,6 +1041,15 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
 
     public void loadUrl(int currentAccount, String url, boolean sameOrigin) {
         this.currentAccount = currentAccount;
+        if (bot) {
+            // NovaGram: every launch path — sheet, attached sheet, menu container
+            // and the attach-alert layout — comes through here, so this is the one
+            // place the mini app's own origin can be recorded without the server
+            // having to ask for it. onPageFinished corrects it once, in case the
+            // launch URL redirects. See initialOrigin.
+            initialOrigin = getOriginHost(url);
+            initialOriginSettled = false;
+        }
         NotificationCenter.getInstance(currentAccount).doOnIdle(() -> {
             isPageLoaded = false;
             lastClickMs = 0;
@@ -1326,6 +1348,101 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
         trustedOrigin = getOriginHost(url);
     }
 
+    /**
+     * NovaGram: the origin the mini app was launched at.
+     *
+     * <p>Upstream only ever enforces an origin on the JS bridge when the server
+     * chooses to set {@code same_origin} on the {@code webViewResultUrl} it
+     * returns — {@code BotWebViewSheet}, {@code BotWebViewAttachedSheet},
+     * {@code BotWebViewMenuContainer} and {@code ChatAttachAlertBotWebViewLayout}
+     * all call {@link #setTrustedOrigin} behind that flag and do nothing
+     * otherwise. When the flag is absent — which is the default — the bridge
+     * answers whatever page happens to be loaded, so any third-party page the
+     * mini app navigated to, or was redirected to, can ask for the clipboard,
+     * the phone number, the location or biometric access under the bot's name.
+     * Whether the client defends itself is therefore decided by the server.</p>
+     *
+     * <p>This field is the client's own answer: the origin is pinned locally and
+     * used for the events that disclose something or act on the account. It is
+     * deliberately not used for the whole bridge — see
+     * {@link #ORIGIN_FREE_EVENTS}.</p>
+     *
+     * <p><b>Honest limits.</b> It is armed by {@link #loadUrl}, so a tab restored
+     * from the bottom-sheet tab strip — which reattaches an existing WebView
+     * through {@code replaceWebView} and never loads anything — leaves it null and
+     * behaves exactly as upstream does. Pinning such a tab from whatever page it
+     * happened to be showing would be worse than not pinning it: a tab suspended on
+     * a payment or OAuth screen would come back with the third party as its trusted
+     * origin, and the bot's own domain locked out.</p>
+     */
+    private String initialOrigin;
+
+    /** NovaGram: whether {@link #initialOrigin} has survived its first page load. */
+    private boolean initialOriginSettled;
+
+    /**
+     * NovaGram: lets the first completed navigation correct {@link #initialOrigin}.
+     *
+     * <p>{@link #loadUrl} can only pin the URL the server handed over. If loading it
+     * redirects — a bot whose entry point sends the client on to the host that
+     * actually serves the app — the settled origin is the one that matters, and it
+     * is not known until the page finishes. Only the first load is allowed to move
+     * the pin; after that a navigation is precisely the event the gate is for.</p>
+     */
+    private void settleInitialOrigin(String url) {
+        if (!bot || initialOriginSettled) {
+            return;
+        }
+        initialOriginSettled = true;
+        final String origin = getOriginHost(url);
+        if (origin != null && initialOrigin != null && !TextUtils.equals(origin, initialOrigin)) {
+            d("settleInitialOrigin " + initialOrigin + " -> " + origin);
+            initialOrigin = origin;
+        }
+    }
+
+    /**
+     * NovaGram: events answered from any origin.
+     *
+     * <p>A cross-origin page inside a mini app is a normal thing — payment
+     * providers and OAuth screens are the usual reason — and such a page still
+     * has to be able to paint itself into the sheet. Everything listed here only
+     * changes how the container looks or reports what it already looks like: it
+     * discloses nothing about the device or the account and takes no action
+     * outside the sheet. Everything <i>not</i> listed is gated on the launch
+     * origin, so an event added by a future upstream sync is gated by default,
+     * which is the safe direction to be wrong in.</p>
+     */
+    private static final HashSet<String> ORIGIN_FREE_EVENTS = new HashSet<>(Arrays.asList(
+        "web_app_ready",
+        "web_app_expand",
+        "web_app_close",
+        "web_app_allow_scroll",
+        "web_app_setup_closing_behavior",
+        "web_app_setup_swipe_behavior",
+        "web_app_set_background_color",
+        "web_app_set_header_color",
+        "web_app_set_bottom_bar_color",
+        "web_app_setup_back_button",
+        "web_app_setup_settings_button",
+        "web_app_setup_main_button",
+        "web_app_setup_secondary_button",
+        "web_app_request_viewport",
+        "web_app_request_theme",
+        "web_app_request_safe_area",
+        "web_app_request_content_safe_area",
+        "web_app_request_fullscreen",
+        "web_app_exit_fullscreen",
+        "web_app_toggle_orientation_lock",
+        "web_app_trigger_haptic_feedback",
+        "web_app_hide_keyboard",
+        "web_app_open_popup",
+        "web_app_close_scan_qr_popup",
+        "web_app_stop_accelerometer",
+        "web_app_stop_gyroscope",
+        "web_app_stop_device_orientation"
+    ));
+
 
     public String getOriginHost() {
         if (webView == null) return null;
@@ -1366,6 +1483,16 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
             final String origin = getOriginHost();
             if (!TextUtils.equals(origin, trustedOrigin)) {
                 d("onEventReceived ignore " + eventType);
+                return;
+            }
+        } else if (initialOrigin != null && !ORIGIN_FREE_EVENTS.contains(eventType)) {
+            // NovaGram: without the server's same_origin flag upstream leaves the
+            // bridge open to whatever page is loaded. Everything that discloses
+            // something or acts on the account is answered only for the origin the
+            // mini app was launched at.
+            final String origin = getOriginHost();
+            if (!TextUtils.equals(origin, initialOrigin)) {
+                d("onEventReceived ignore (cross-origin) " + eventType + " at " + origin);
                 return;
             }
         }
@@ -1438,16 +1565,71 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
             case "web_app_read_text_from_clipboard": {
                 try {
                     JSONObject jsonObject = new JSONObject(eventData);
-                    String reqId = jsonObject.getString("req_id");
-                    if (!delegate.isClipboardAvailable() || System.currentTimeMillis() - lastClickMs > 10_000) {
+                    final String reqId = jsonObject.getString("req_id");
+                    if (!delegate.isClipboardAvailable() || System.currentTimeMillis() - lastClickMs > 10_000 || parentActivity == null) {
                         notifyEvent("clipboard_text_received", new JSONObject().put("req_id", reqId));
                         break;
                     }
 
-                    ClipboardManager clipboardManager = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
-                    CharSequence text = clipboardManager.getText();
-                    String data = text != null ? text.toString() : "";
-                    notifyEvent("clipboard_text_received", new JSONObject().put("req_id", reqId).put("data", data));
+                    // NovaGram: upstream hands the whole system clipboard to the bot
+                    // with no dialog whatsoever. The only gate is
+                    // Delegate.isClipboardAvailable(), which resolves to "this bot is
+                    // in the attach menu, or its id is in
+                    // MessagesController.whitelistedBots" — and whitelistedBots is an
+                    // app-config set that arrives from the server, so membership is
+                    // decided remotely and can change without an app update. Beyond
+                    // that the only check is that some tap happened in the last ten
+                    // seconds, which is not consent to disclose a paste buffer that
+                    // may be holding a password or a one-time code. The read is now
+                    // asked for by name. Declining answers exactly the way "no
+                    // clipboard available" already answers — a reply with no data
+                    // field, which the mini-app protocol defines — so nothing hangs.
+                    final boolean[] answered = new boolean[1];
+                    final Utilities.Callback<String> reply = data -> {
+                        if (answered[0]) return;
+                        answered[0] = true;
+                        try {
+                            final JSONObject result = new JSONObject().put("req_id", reqId);
+                            if (data != null) {
+                                result.put("data", data);
+                            }
+                            notifyEvent("clipboard_text_received", result);
+                        } catch (JSONException e) {
+                            FileLog.e(e);
+                        }
+                    };
+                    // The bot must get an answer even if the dialog cannot be put on
+                    // the screen — a sheet closing, a rotation, an activity already
+                    // finishing. show() throws BadTokenException there, which is a
+                    // RuntimeException and would sail past the catch below, leaving
+                    // this req_id unanswered and the mini app waiting on a promise
+                    // that never settles. Upstream always answered.
+                    try {
+                        if (!AndroidUtilities.isSafeToShow(parentActivity)) {
+                            reply.run(null);
+                            break;
+                        }
+                        new AlertDialog.Builder(parentActivity, resourcesProvider)
+                            .setTitle(getString(R.string.NovaBotClipboardTitle))
+                            .setMessage(AndroidUtilities.replaceTags(formatString(R.string.NovaBotClipboardRequest, UserObject.getUserName(botUser))))
+                            .setPositiveButton(getString(R.string.BotWebViewRequestAllow), (di, w) -> {
+                                String data = "";
+                                try {
+                                    final ClipboardManager clipboardManager = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                                    final CharSequence text = clipboardManager == null ? null : clipboardManager.getText();
+                                    data = text != null ? text.toString() : "";
+                                } catch (Exception e) {
+                                    FileLog.e(e);
+                                }
+                                reply.run(data);
+                            })
+                            .setNegativeButton(getString(R.string.BotWebViewRequestDontAllow), (di, w) -> reply.run(null))
+                            .setOnDismissListener(di -> reply.run(null))
+                            .show();
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                        reply.run(null);
+                    }
                 } catch (JSONException e) {
                     FileLog.e(e);
                 }
@@ -2338,6 +2520,23 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                     return;
                 }
 
+                // NovaGram: the bot names a URL and upstream fetches it there and
+                // then, guarded only by "some tap happened in the last 10 s". The
+                // fetch is a direct HttpURLConnection from this device, outside the
+                // Telegram proxy and outside MTProto, so the bot's server — or any
+                // host it cares to name — learns the real IP address, and it learns
+                // it before the user has seen so much as a preview. The download is
+                // now asked for, by host, and plaintext http is refused outright.
+                final String finalMediaUrl = media_url;
+                if (TextUtils.isEmpty(finalMediaUrl)) return;
+                final Uri mediaUri = Uri.parse(finalMediaUrl);
+                if (mediaUri == null || !"https".equalsIgnoreCase(mediaUri.getScheme())) {
+                    d("web_app_share_to_story: refused non-https media_url");
+                    return;
+                }
+                final String mediaHost = AndroidUtilities.getHostAuthority(finalMediaUrl);
+                if (parentActivity == null || TextUtils.isEmpty(mediaHost)) return;
+                final Runnable startStoryDownload = () -> {
                 AlertDialog progressDialog = new AlertDialog(parentActivity, AlertDialog.ALERT_TYPE_SPINNER);
                 new HttpGetFileTask(file -> {
                     AndroidUtilities.runOnUIThread(() -> {
@@ -2410,8 +2609,23 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                             AndroidUtilities.runOnUIThread(open);
                         });
                     });
-                }, null).execute(media_url);
+                }, null).execute(finalMediaUrl);
                 progressDialog.showDelayed(250);
+                };
+                if (!AndroidUtilities.isSafeToShow(parentActivity)) {
+                    // No screen to ask on means no consent, and no download.
+                    break;
+                }
+                try {
+                    new AlertDialog.Builder(parentActivity, resourcesProvider)
+                        .setTitle(getString(R.string.NovaBotStoryFetchTitle))
+                        .setMessage(AndroidUtilities.replaceTags(formatString(R.string.NovaBotStoryFetchRequest, UserObject.getUserName(botUser), mediaHost)))
+                        .setPositiveButton(getString(R.string.BotWebViewRequestAllow), (di, w) -> startStoryDownload.run())
+                        .setNegativeButton(getString(R.string.Cancel), null)
+                        .show();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
 
                 break;
             }
@@ -4087,6 +4301,16 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                         return true;
                     }
                     Uri uriNew = Uri.parse(url);
+                    if (bot && uriNew != null && "http".equalsIgnoreCase(uriNew.getScheme())) {
+                        // NovaGram: upstream applies no scheme policy at all to a bot
+                        // container — the !bot branch below is the only place any URL
+                        // is inspected — so a mini app could walk itself onto plain
+                        // http and send whatever the page holds, tgWebAppData
+                        // included, in the clear. Mini apps are required to be served
+                        // over https, so refusing http costs nothing legitimate.
+                        d("shouldOverrideUrlLoading(" + url + ") = true (bot: plaintext http refused)");
+                        return true;
+                    }
                     if (!bot) {
                         if (Browser.openInExternalApp(context, url, true)) {
                             d("shouldOverrideUrlLoading("+url+") = true (openInExternalBrowser)");
@@ -4191,6 +4415,14 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                     }
                     d("onPageFinished");
                     if (botWebViewContainer != null) {
+                        // NovaGram: settle the launch origin on the first completed
+                        // navigation. loadUrl() pins the URL the server returned, but
+                        // a mini app whose entry point 302s to the host that actually
+                        // serves it would then be measured against the wrong origin
+                        // for ever. Only the first load may move the pin; every
+                        // navigation after that is exactly what the gate exists to
+                        // notice. See initialOrigin.
+                        botWebViewContainer.settleInitialOrigin(url);
                         botWebViewContainer.setPageLoaded(url, animated);
                     } else {
                         d("onPageFinished: no container");
@@ -4646,10 +4878,16 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                             return;
                         }
 
-                        if (botWebViewContainer.isVerifyingAge()) {
-                            request.grant(resources);
-                            return;
-                        }
+                        // NovaGram: upstream granted camera and microphone here with
+                        // no prompt at all whenever the container was in
+                        // age-verification mode, on the theory that the user already
+                        // agreed to be scanned. Age verification is run by a
+                        // third-party bot inside a WebView, so "no prompt" means an
+                        // arbitrary remote page silently gets the front camera and
+                        // the microphone. The mode no longer skips the dialog; the
+                        // ordinary consent path below names the bot and still asks
+                        // the OS for the permission, so the feature works, it just
+                        // has to be agreed to.
 
                         switch (resource) {
                             case PermissionRequest.RESOURCE_AUDIO_CAPTURE: {

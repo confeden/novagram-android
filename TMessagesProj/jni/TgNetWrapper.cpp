@@ -549,6 +549,28 @@ void novaRewriteConfig(JNIEnv *env, jclass c, jint instanceNum) {
     ConnectionsManager::getInstance(instanceNum).novaRewriteConfig();
 }
 
+// NovaGram: true once a read met a sealed config this device cannot open. Java
+// asks right after native_init - that is the first moment the answer exists -
+// and puts the client on the "data belongs to another device" screen. The Java
+// side reaches the same conclusion on its own before any of this runs, by
+// looking at the same first bytes; this covers the cases it cannot see, above
+// all a key that is present and simply does not open what is there.
+jboolean novaIsConfigForeign(JNIEnv *env, jclass c, jint instanceNum) {
+    return ConnectionsManager::getInstance(instanceNum).novaMetForeignConfig() ? JNI_TRUE : JNI_FALSE;
+}
+
+// Only for the two wipes, which are also the only callers of the Java side's
+// forget(). Everything the verdict was about has just been deleted, so keeping
+// it would refuse writes for a directory that no longer exists.
+void novaClearForeignConfig(JNIEnv *env, jclass c) {
+    NovaConfigSeal::clearForeignConfig();
+}
+
+// One-way. See NovaConfigSeal::forbidWrites.
+void novaForbidConfigWrites(JNIEnv *env, jclass c) {
+    NovaConfigSeal::forbidWrites();
+}
+
 static const char *ConnectionsManagerClassPathName = "org/telegram/tgnet/ConnectionsManager";
 static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_getCurrentTimeMillis", "(I)J", (void *) getCurrentTimeMillis},
@@ -582,6 +604,9 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_setJava", "(Z)V", (void *) setJava},
         {"native_novaSetDeviceKey", "([BZ)V", (void *) novaSetDeviceKey},
         {"native_novaRewriteConfig", "(I)V", (void *) novaRewriteConfig},
+        {"native_novaIsConfigForeign", "(I)Z", (void *) novaIsConfigForeign},
+        {"native_novaClearForeignConfig", "()V", (void *) novaClearForeignConfig},
+        {"native_novaForbidConfigWrites", "()V", (void *) novaForbidConfigWrites},
         {"native_applyDnsConfig", "(IJLjava/lang/String;I)V", (void *) applyDnsConfig},
         {"native_checkProxy", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/telegram/tgnet/RequestTimeDelegate;)J", (void *) checkProxy},
         {"native_onHostNameResolved", "(Ljava/lang/String;JLjava/lang/String;)V", (void *) onHostNameResolved},

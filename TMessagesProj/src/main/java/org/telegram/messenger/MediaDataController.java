@@ -5000,15 +5000,24 @@ public class MediaDataController extends BaseController {
         if (maxShortcuts <= 0) {
             maxShortcuts = 5;
         }
+        // NovaGram: upstream publishes the top few chats — display name and avatar,
+        // one shortcut each — into ShortcutManager. That store belongs to the
+        // system, not to the app: it lives outside the application data directory,
+        // it is read by the launcher and by the direct-share row of every share
+        // sheet on the device, it survives a lock, and it is not covered by any PIN
+        // this fork asks for. Whoever picks the phone up sees the five people this
+        // account talks to most, with their faces, without unlocking anything. The
+        // only gate upstream applies is SharedConfig.passcodeHash, Telegram's own
+        // passcode, which is off by default and is a different thing from the
+        // NovaGram PIN — so in the default configuration the list was published.
+        //
+        // hintsFinal is left empty, which keeps upstream's own bookkeeping below:
+        // the "compose" shortcut is still published, and any did3_* shortcut left
+        // over from an earlier version ends up in shortcutsToDelete on API < 30 and
+        // is wiped by removeAllDynamicShortcuts on 30+. Shortcuts the user pins on
+        // purpose, from a chat's own menu, are a different code path and are not
+        // touched.
         ArrayList<TLRPC.TL_topPeer> hintsFinal = new ArrayList<>();
-        if (SharedConfig.passcodeHash.length() <= 0) {
-            for (int a = 0; a < hints.size(); a++) {
-                hintsFinal.add(hints.get(a));
-                if (hintsFinal.size() == maxShortcuts - 2) {
-                    break;
-                }
-            }
-        }
         boolean recreateShortcuts = Build.VERSION.SDK_INT >= 30;
         Utilities.globalQueue.postRunnable(() -> {
             try {

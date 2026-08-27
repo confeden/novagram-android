@@ -19,7 +19,10 @@
     <uses-feature android:name="android.hardware.camera2" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.proximity" android:required="false" />
 
-    <uses-permission android:name="android.permission.READ_CLIPBOARD"/>
+    <!-- NovaGram: android.permission.READ_CLIPBOARD was declared here. No such
+         permission exists in the Android framework at any API level, so the line
+         only ever widened the list the system shows the user; clipboard access
+         through ClipboardManager needs no permission. Removed. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -41,11 +44,19 @@
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
-    <uses-permission android:name="android.permission.MANAGE_ACCOUNTS"/>
-    <uses-permission android:name="android.permission.READ_PROFILE"/>
+    <!-- NovaGram: MANAGE_ACCOUNTS and AUTHENTICATE_ACCOUNTS were removed from the
+         platform at API 23 and are declared there with maxSdkVersion 22, so on
+         every device above Lollipop they are dead text that still counts towards
+         the app's declared permissions. minSdkVersion here is 21, so they are not
+         deleted outright - the AccountManager work in ContactsController and
+         AuthenticatorService does run on 21 and 22 - only bounded to the range
+         where they mean anything. -->
+    <uses-permission android:name="android.permission.MANAGE_ACCOUNTS" android:maxSdkVersion="22"/>
+    <!-- NovaGram: READ_PROFILE removed. Nothing in the tree reads
+         ContactsContract.Profile, and the permission itself was retired at API 23. -->
     <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS"/>
     <uses-permission android:name="android.permission.READ_SYNC_SETTINGS"/>
-    <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS"/>
+    <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS" android:maxSdkVersion="22"/>
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
@@ -56,7 +67,11 @@
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
     <uses-permission android:name="com.android.launcher.permission.UNINSTALL_SHORTCUT"/>
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <!-- NovaGram: BLUETOOTH is genuinely used - VoIPService and MediaController
+         route call audio over a headset with BluetoothAdapter and SCO - but only up
+         to API 30; from 31 that work needs BLUETOOTH_CONNECT, declared above. Bounded
+         so a modern device is not asked for the legacy one as well. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -94,6 +109,12 @@
         </intent>
     </queries>
 
+    <!-- NovaGram: android:allowAudioPlaybackCapture below was true. Any application
+         holding RECORD_AUDIO could then capture what this one plays - received voice
+         messages, video notes, call audio once it is on the media stream - through
+         AudioPlaybackCapture, with no prompt of ours. It defaults to true for
+         targetSdk 29+, so the attribute has to be present and false rather than
+         simply deleted. -->
     <application
         android:name="org.telegram.messenger.ApplicationLoader"
         android:allowBackup="false"
@@ -108,7 +129,7 @@
         android:supportsRtl="false"
         android:requestLegacyExternalStorage="true"
         android:preserveLegacyExternalStorage="true"
-        android:allowAudioPlaybackCapture="true"
+        android:allowAudioPlaybackCapture="false"
         tools:replace="android:supportsRtl"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/novagram_network_security_config"
@@ -429,9 +450,19 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            NovaGram: the SMS Retriever broadcast may only be delivered by Play
+            Services. The permission below is declared by Play Services with a
+            signature protection level, so no other application on the phone can
+            hold it. Without it this receiver was exported with no permission at
+            all, and any installed application could post a login code into it:
+            SmsReceiver takes the first run of three or more digits out of the
+            extra and LoginActivity types it into the code field and submits it.
+        -->
         <receiver
             android:name=".SmsReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.google.android.gms.auth.api.phone.permission.SEND">
             <intent-filter>
                 <action android:name="com.google.android.gms.auth.api.phone.SMS_RETRIEVED"/>
             </intent-filter>

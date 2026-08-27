@@ -5,6 +5,7 @@ import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.webrtc.ContextUtils;
 import org.webrtc.VideoSink;
 
@@ -170,7 +171,16 @@ public class NativeInstance {
         requestCurrentTimeCallback.run(taskPtr);
     }
 
-    public native void setJoinResponsePayload(String payload);
+    // Wrapped rather than called straight so that the address filter cannot be
+    // forgotten by the next caller: the join response is where a group or
+    // conference call gets its addresses, and a name in one of them would be
+    // handed to getaddrinfo by the native stack. See NovaCallPolicy.
+    public void setJoinResponsePayload(String payload) {
+        setJoinResponsePayloadNative(
+                NovaCallPolicy.filterJoinResponseAddresses(payload));
+    }
+
+    private native void setJoinResponsePayloadNative(String payload);
     public native void prepareForStream(boolean isRtpStream);
     public native void resetGroupInstance(boolean set, boolean disconnect);
 

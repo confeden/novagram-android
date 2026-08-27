@@ -31,6 +31,7 @@
 #include "BuffersStorage.h"
 #include "ByteArray.h"
 #include "Config.h"
+#include "NovaConfigSeal.h"
 #include "ProxyCheckInfo.h"
 #include "Handshake.h"
 
@@ -366,6 +367,21 @@ void ConnectionsManager::loadConfig() {
         config = new Config(instanceNum, "tgnet.dat");
     }
     NativeByteBuffer *buffer = config->readConfig();
+    // NovaGram: "this device could not open it" is not "there is nothing here".
+    // Without the distinction the code below takes the fresh-install path and
+    // saveConfig() writes a new file over the ciphertext - which destroys the
+    // only evidence the fork has that this directory was carried here from
+    // another device (I14), and turns a refusal into a silent new session.
+    // D13: an unsealable copy is never wiped automatically, so nothing is
+    // written here at all; the owner is offered one explicit start over.
+    //
+    // Asked of this account's own file, not of the process-wide flag: another
+    // account's failed read is not this account's answer, and reporting it as
+    // one would put the owner on the blocked screen over data that opens.
+    novaForeignConfig = config->metForeignConfig();
+    if (novaForeignConfig) {
+        if (LOGS_ENABLED) DEBUG_E("account%u tgnet config belongs to another device, nothing will be written over it", instanceNum);
+    }
     if (buffer != nullptr) {
         uint32_t version = buffer->readUint32(nullptr);
         if (LOGS_ENABLED) DEBUG_D("config version = %u", version);
@@ -439,7 +455,9 @@ void ConnectionsManager::loadConfig() {
         if (currentDatacenterId == 0) {
             currentDatacenterId = 2;
         }
-        saveConfig();
+        if (!novaForeignConfig) {
+            saveConfig();
+        }
     }
     movingToDatacenterId = DEFAULT_DATACENTER_ID;
 }

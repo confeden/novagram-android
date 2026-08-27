@@ -14,6 +14,7 @@ import android.os.SystemClock;
 import android.util.Base64;
 import android.util.LongSparseArray;
 
+import org.telegram.messenger.novagram.privacy.NovaContactSync;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLRPC;
@@ -59,7 +60,13 @@ public class UserConfig extends BaseController {
 
     public boolean notificationsSettingsLoaded;
     public boolean notificationsSignUpSettingsLoaded;
-    public boolean syncContacts = true;
+    /**
+     * NovaGram: false for an account slot that has never been configured. See
+     * {@link NovaContactSync} — the stored value of a slot that was signed in
+     * before still wins, so this does not flip anybody whose address book is
+     * already synchronised.
+     */
+    public boolean syncContacts = NovaContactSync.DEFAULT_FOR_NEW_INSTALL;
     public boolean suggestContacts = true;
     public boolean showCallsTab;
     public boolean hasSecureData;
@@ -311,7 +318,11 @@ public class UserConfig extends BaseController {
             botGuestRatingLoadTime = preferences.getInt("botGuestRatingLoadTime", 0);
             webappRatingLoadTime = preferences.getInt("webappRatingLoadTime", 0);
             loginTime = preferences.getInt("loginTime", currentAccount);
-            syncContacts = preferences.getBoolean("syncContacts", true);
+            // The key is present for every slot that has ever been saved, and
+            // saveConfig writes it unconditionally, so "absent" means exactly
+            // "this slot has never been signed in" — a new install, or a slot
+            // freed by clearConfig. Only that case takes the fork's default.
+            syncContacts = preferences.getBoolean("syncContacts", NovaContactSync.DEFAULT_FOR_NEW_INSTALL);
             showCallsTab = preferences.getBoolean("showCallsTab", false);
             suggestContacts = preferences.getBoolean("suggestContacts", true);
             hasSecureData = preferences.getBoolean("hasSecureData", false);
@@ -483,7 +494,11 @@ public class UserConfig extends BaseController {
         webappRatingLoadTime = 0;
         draftsLoaded = false;
         contactsReimported = true;
-        syncContacts = true;
+        // Logging out empties the preference file, so the slot is a new install
+        // again as far as loadConfig is concerned. Leaving `true` here would
+        // make the next sign-in upload the address book without asking, which
+        // is the hole this default closes.
+        syncContacts = NovaContactSync.DEFAULT_FOR_NEW_INSTALL;
         showCallsTab = false;
         suggestContacts = true;
         unreadDialogsLoaded = true;

@@ -176,9 +176,15 @@ public final class NovaPrivacySettings {
 
     /**
      * Whether the user chose to continue without an application PIN when it was
-     * offered after signing in. Non-sensitive: it only suppresses the PIN
-     * prompt, it is not a verifier. Enrolling a PIN later clears it, which
-     * re-enables the gate and the emergency PIN.
+     * offered after signing in. Non-sensitive, and it has to stay that way: it
+     * lives in a plaintext file that anything running as this application can
+     * write.
+     *
+     * <p>It suppresses the offer and nothing else. Whether a PIN exists is
+     * answered by {@code NovaPinVault}, and {@code NovaPinSession} requires both
+     * before it lets anyone past the gate — this flag on its own used to be
+     * enough, which made a single plaintext boolean the way to disarm the PIN.
+     * </p>
      */
     public boolean isAppPinDeclined() {
         return readBoolean(globalPreferences, KEY_APP_PIN_DECLINED, false);

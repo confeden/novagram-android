@@ -4691,7 +4691,16 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                                 BuildVars.DEBUG_PRIVATE_VERSION ? "Reset suggestions" : null,
                                 BuildVars.DEBUG_PRIVATE_VERSION ? getString(R.string.DebugMenuClearWebViewCache) : null,
                                 getString(R.string.DebugMenuClearWebViewCookies),
-                                getString(SharedConfig.debugWebView ? R.string.DebugMenuDisableWebViewDebug : R.string.DebugMenuEnableWebViewDebug),
+                                // NovaGram: offered only in a debug build. The entry
+                                // calls SharedConfig.toggleDebugWebView(), whose flag
+                                // is persisted and is not tied to the build type, so
+                                // in a release build it left every WebView in the
+                                // process open to any local DevTools client — page
+                                // contents, cookies and session tokens included —
+                                // until it was switched off again. null keeps the
+                                // "which" indices below aligned, the way the other
+                                // build-gated entries in this array do.
+                                BuildVars.DEBUG_VERSION ? getString(SharedConfig.debugWebView ? R.string.DebugMenuDisableWebViewDebug : R.string.DebugMenuEnableWebViewDebug) : null,
                                 AndroidUtilities.isTabletInternal() && BuildVars.DEBUG_PRIVATE_VERSION ? SharedConfig.forceDisableTabletMode ? "Enable tablet mode" : "Disable tablet mode" : null,
                                 BuildVars.DEBUG_PRIVATE_VERSION ? getString(SharedConfig.isFloatingDebugActive ? R.string.FloatingDebugDisable : R.string.FloatingDebugEnable) : null,
                                 BuildVars.DEBUG_PRIVATE_VERSION ? "Force remove premium suggestions" : null,
@@ -4817,7 +4826,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                                 CookieManager cookieManager = CookieManager.getInstance();
                                 cookieManager.removeAllCookies(null);
                                 cookieManager.flush();
-                            } else if (which == 16) { // WebView debug
+                            } else if (which == 16 && BuildVars.DEBUG_VERSION) { // WebView debug
                                 SharedConfig.toggleDebugWebView();
                                 Toast.makeText(getParentActivity(), getString(SharedConfig.debugWebView ? R.string.DebugMenuWebViewDebugEnabled : R.string.DebugMenuWebViewDebugDisabled), Toast.LENGTH_SHORT).show();
                             } else if (which == 17) { // Tablet mode
@@ -13037,6 +13046,16 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                             continue;
                         }
                         if (!file.exists() || file.isDirectory()) {
+                            continue;
+                        }
+                        // NovaGram: heap dumps are never put in the archive. This zip
+                        // is offered to whatever application the user picks out of a
+                        // system chooser, and FileLog.dumpMemory writes *_heap.hprof
+                        // into this same directory — a copy of the process heap, so
+                        // message text, contact names and any key resident at the
+                        // moment of the dump. A log file is a defensible thing to
+                        // send someone; the entire memory of the messenger is not.
+                        if (file.getName().endsWith(".hprof")) {
                             continue;
                         }
                         FileInputStream fi = new FileInputStream(file);

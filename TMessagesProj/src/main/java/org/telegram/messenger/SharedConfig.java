@@ -1079,7 +1079,13 @@ public class SharedConfig {
 
     public static void toggleDebugWebView() {
         debugWebView = !debugWebView;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+        // NovaGram: remote inspection of the WebView means anything with adb
+        // can read what a mini app or the built-in browser is showing, and
+        // this switch lives in a menu a release build still exposes. The
+        // preference keeps working so the menu is not silently broken; only
+        // the platform-wide debugging bridge is refused outside a debug build.
+        if (BuildVars.DEBUG_VERSION
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(debugWebView);
         }
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();

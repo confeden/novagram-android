@@ -1,6 +1,7 @@
 package org.telegram.messenger.novagram.privacy;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -25,6 +26,17 @@ public final class NovaPinSession {
     private static final Runnable EXPIRY_LOCK = NovaPinSession::lockAndShowGate;
     private static Intent pendingLaunch;
 
+    /** Null while unknown; see {@link #pinExists()}. */
+    private static volatile Boolean pinPresence;
+
+    /** See {@link #rememberPendingLaunch(Activity)}. */
+    private static final int DROPPED_REPLAY_FLAGS =
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    | Intent.FLAG_ACTIVITY_FORWARD_RESULT;
+
     /** Both on the elapsed-realtime clock: it does not go back when the user
      *  changes the time, and it keeps counting while the device sleeps. */
     private static volatile long unlockedAt;
@@ -47,10 +59,11 @@ public final class NovaPinSession {
             // the decoy exists to avoid.
             return true;
         }
-        if (appPinDeclined()) {
+        if (noPinToAskFor()) {
             // The application PIN was offered after signing in and the user
-            // chose to continue without one. The gate stays out of the way
-            // until a PIN is set from NovaGram settings, which clears the flag.
+            // chose to continue without one, and the vault confirms none was
+            // ever created. The gate stays out of the way until a PIN is set
+            // from NovaGram settings.
             return true;
         }
         // Asked rather than trusted to the timer. A posted callback does not
@@ -63,6 +76,29 @@ public final class NovaPinSession {
         return isAccessAllowed(hasAuthenticatedAccount(), UNLOCKED.get());
     }
 
+    /**
+     * Whether there is no PIN on this device to ask for. Two answers, and both
+     * have to agree: the preference says the offer was declined, and the vault
+     * says nothing was ever enrolled.
+     *
+     * <p>The preference used to be enough on its own, and it is an ordinary
+     * boolean in a plaintext {@code SharedPreferences} file. Writing
+     * {@code app_pin_declined=true} into that file disarmed the gate of a user
+     * who <em>had</em> set a PIN — and the PIN is the fork's answer to code
+     * running as this application on this device, which is precisely the code
+     * that can write that file. So "does a PIN exist" is now asked of the
+     * Keystore-sealed vault and of nothing else, and the preference decides
+     * only whether the enrollment screen is offered again.</p>
+     *
+     * <p>The order matters as much as the pair does. The preference is read
+     * first, and it is false on a fresh install, so a first run never touches
+     * the Keystore at all: it falls through to the account check, finds no
+     * signed-in account and is allowed in.</p>
+     */
+    private static boolean noPinToAskFor() {
+        return appPinDeclined() && !pinExists();
+    }
+
     private static boolean appPinDeclined() {
         Context context = ApplicationLoader.applicationContext;
         if (context == null) {
@@ -73,6 +109,46 @@ public final class NovaPinSession {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /**
+     * Cached, because {@link #isUnlocked()} runs at every activity start and
+     * {@link #armExpiry()} at every touch while an inactivity deadline is set,
+     * and the answer costs a Keystore load. It is only ever asked when the
+     * declined flag is set, so a user with a PIN pays nothing for it.
+     *
+     * <p>Anything the vault cannot answer counts as "a PIN exists". The gate
+     * reports a corrupt or unreachable vault honestly; letting the caller
+     * through instead would make a broken Keystore a second way past the PIN.
+     * </p>
+     */
+    private static boolean pinExists() {
+        Boolean cached = pinPresence;
+        if (cached != null) {
+            return cached;
+        }
+        Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            // Too early to ask, and deliberately not remembered.
+            return true;
+        }
+        boolean value;
+        try {
+            value = !new NovaPinVault(context).isAbsent();
+        } catch (Throwable ignored) {
+            value = true;
+        }
+        pinPresence = value;
+        return value;
+    }
+
+    /**
+     * A PIN was created or removed. Called by the gate, which is the only place
+     * either can happen; the emergency wipe and the device reset also change the
+     * vault but end the process, so nothing survives to hold a stale answer.
+     */
+    public static void onPinStateChanged() {
+        pinPresence = null;
     }
 
     static boolean isAccessAllowed(boolean hasAuthenticatedAccount, boolean sessionUnlocked) {
@@ -191,7 +267,7 @@ public final class NovaPinSession {
      * the deadlines, and the deadlines consult this.</p>
      */
     private static boolean pinProtectionActive() {
-        return !NovaDecoyState.isActive() && !appPinDeclined();
+        return !NovaDecoyState.isActive() && !noPinToAskFor();
     }
 
     private static NovaPinLockPolicy policy() {
@@ -270,12 +346,49 @@ public final class NovaPinSession {
         if (activity == null) {
             throw new IllegalArgumentException("activity must not be null");
         }
-        pendingLaunch = new Intent(activity.getIntent());
-        pendingLaunch.setClass(activity, LaunchActivity.class);
+        rememberPendingLaunch(activity);
         Intent gate = new Intent(activity, NovaPinGateActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         activity.startActivity(gate);
         activity.overridePendingTransition(0, 0);
+    }
+
+    /**
+     * Where the user goes once the PIN has been entered: back to the screen the
+     * lock interrupted, started with the Intent that screen was given.
+     *
+     * <p>The Intent keeps the component it was addressed to. It used to be
+     * reclassed to {@link LaunchActivity} — data, extras and flags copied whole
+     * and the class simply overwritten. {@code ShareActivity},
+     * {@code ExternalActionActivity}, {@code BubbleActivity},
+     * {@code PopupNotificationActivity} and {@code VoIPPermissionActivity} are
+     * all exported and are guarded through {@link #guardAfterSuper(Activity)},
+     * so the Intent being copied there is whatever another application on the
+     * phone sent. Handing that to {@code LaunchActivity.handleIntent} is not a
+     * replay: that method reads {@code tg://} data, share actions and internal
+     * extras that the component the sender actually reached does not, and none
+     * of it had been through that component's own handling. Restarting the
+     * addressed activity instead does exactly what the system would have done
+     * had the application not been locked, and nothing more.</p>
+     *
+     * <p>The two flag groups that must not survive the trip are dropped. A URI
+     * grant belongs to the delivery that carried it and is not re-issued when
+     * this process starts the Intent itself, and a forwarded result would be
+     * forwarded from the gate, which is not what the sender was answered by.
+     * </p>
+     */
+    private static void rememberPendingLaunch(Activity activity) {
+        pendingLaunch = null;
+        Intent source = activity.getIntent();
+        if (source == null) {
+            return;
+        }
+        Intent copy = new Intent(source);
+        copy.setComponent(new ComponentName(activity, activity.getClass()));
+        // setFlags rather than removeFlags: the latter arrived in API 26 and
+        // this build starts at 23.
+        copy.setFlags(source.getFlags() & ~DROPPED_REPLAY_FLAGS);
+        pendingLaunch = copy;
     }
 
     /** Must be called immediately after {@code super.onCreate()} by secondary activities. */
@@ -289,13 +402,18 @@ public final class NovaPinSession {
         return true;
     }
 
+    /**
+     * Deliberately does not reclass what it returns. The component was fixed
+     * when the Intent was parked, and forcing {@link LaunchActivity} on it here
+     * would put back exactly the substitution
+     * {@link #rememberPendingLaunch(Activity)} exists to prevent.
+     */
     public static synchronized Intent takePendingLaunch(Activity activity) {
         Intent result = pendingLaunch;
         pendingLaunch = null;
         if (result == null) {
             result = new Intent(activity, LaunchActivity.class);
         }
-        result.setClass(activity, LaunchActivity.class);
         return result;
     }
 }

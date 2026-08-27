@@ -778,10 +778,24 @@ public class ConnectionsManager extends BaseController {
         // tgnet.dat. The authorization keys in that file are sealed to this
         // device, and the key has to be in place for the very first read.
         NovaDeviceLock.installNativeKey();
-        boolean rewriteConfig = NovaDeviceLock.needsConfigRewrite();
+        boolean rewriteConfig = NovaDeviceLock.needsConfigRewrite(currentAccount);
 
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
-        if (rewriteConfig) {
+        // NovaGram: native_init has read this account's tgnet.dat by now, so
+        // this is the first moment the answer exists. The Java side reaches the
+        // same conclusion on its own from the file's first bytes, but only for
+        // the cases it can see; a key that is present and simply does not open
+        // what is there is known only here. Reported rather than written over:
+        // D13. Asked per account, because that is what the answer is about.
+        boolean foreignConfig = false;
+        try {
+            foreignConfig = native_novaIsConfigForeign(currentAccount);
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+        if (foreignConfig) {
+            NovaDeviceLock.onNativeForeignConfig();
+        } else if (rewriteConfig) {
             // Upgraded from a build that wrote the file in the clear, or the
             // binding was switched while the application was not running. The
             // ordinary writes would get there eventually; this does not leave
@@ -1154,6 +1168,12 @@ public class ConnectionsManager extends BaseController {
     /** NovaGram: 32 bytes unwrapped from the Android Keystore, or null when there is no binding. */
     public static native void native_novaSetDeviceKey(byte[] key, boolean sealWrites);
     public static native void native_novaRewriteConfig(int currentAccount);
+    /** NovaGram: true when this account's config was sealed and would not open here. */
+    public static native boolean native_novaIsConfigForeign(int currentAccount);
+    /** NovaGram: drops that verdict after the data it was about has been deleted. */
+    public static native void native_novaClearForeignConfig();
+    /** NovaGram: stops every further config write in this process, for the wipe. */
+    public static native void native_novaForbidConfigWrites();
     public static native void native_setPushConnectionEnabled(int currentAccount, boolean value);
     public static native void native_applyDnsConfig(int currentAccount, long address, String phone, int date);
     public static native long native_checkProxy(int currentAccount, String address, int port, String username, String password, String secret, RequestTimeDelegate requestTimeDelegate);

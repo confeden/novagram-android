@@ -17,7 +17,7 @@
     <string name="NovaSettingsPinsInfo">The application PIN protects access after signing in. The emergency PIN, entered instead of it under coercion, signs out of every account and destroys local data.</string>
     <string name="NovaSettingsPrivacyHeader">Privacy</string>
     <string name="NovaSettingsScreenshotProtection">Block screenshots</string>
-    <string name="NovaSettingsScreenshotInfo">Blocks screenshots and screen recording in private chats and secret chats. Public channels and groups stay shareable.</string>
+    <string name="NovaSettingsScreenshotInfo">Blocks screenshots and screen recording of the whole NovaGram window, the recents thumbnail included, and does not need a Telegram passcode to do it. Instant View articles and mini apps draw in windows of their own and are not covered.</string>
     <string name="NovaPinInvalidLength">The PIN must contain 4–6 digits.</string>
     <string name="NovaPinMismatch">The PIN values did not match. Create the PIN again.</string>
     <string name="NovaPinIncorrect">Incorrect PIN. The keypad order has been changed.</string>
@@ -169,6 +169,32 @@
     <string name="NovaDeviceChangedReset">Start over</string>
     <string name="NovaDeviceChangedResetConfirm">Every local file of this installation will be removed, including the history that cannot be read here anyway. The session on the servers stays alive until you end it from the device that owns it.</string>
     <string name="NovaDeviceChangedResetting">Removing the local data…</string>
+    <string name="NovaDeviceUnknownTitle">Can\'t check this data right now</string>
+    <string name="NovaDeviceUnknownDescription">The stored authorisation is sealed, and this phone\'s key store did not answer whether the key that opens it is here. Nothing has been read and nothing has been changed.\n\nTry again, or restart the app. Your data is not being deleted.</string>
+    <string name="NovaDeviceUnknownRetry">Try again</string>
     <string name="NovaDeviceBindingTitle">Bind data to this device</string>
     <string name="NovaDeviceBindingInfo">A copied application data folder signs nobody in on another device — even with no PIN set. Against code running as this app on this phone only a PIN helps.</string>
+    <string name="NovaDeviceBindingStateOn">Sealed to this device</string>
+    <string name="NovaDeviceBindingStateOff">Off — the data folder opens anywhere</string>
+    <string name="NovaDeviceBindingStatePending">Applying — the stored file has not been rewritten yet</string>
+    <string name="NovaDeviceBindingStateUnavailable">On in the setting, not in effect: this phone\'s key store refused. It will be tried again at the next start.</string>
+    <string name="NovaDeviceBindingStateForeign">This data belongs to another device</string>
+
+    <string name="NovaAutoTranslateTitle">Never autotranslate</string>
+    <string name="NovaAutoTranslateInfo">A channel can mark itself as auto-translated, and Telegram then turns translation on by itself — post text leaves the device while you read. NovaGram stops reading that mark. Translation you switch on by hand in a chat keeps working.</string>
+    <string name="NovaContactSyncTitle">Sync contacts</string>
+    <string name="NovaContactSyncInfo">Uploads the number and the name of every phone book entry to Telegram, people who have no Telegram included. Off on new installs. Contacts already uploaded stay on the server: only the privacy settings of Telegram itself remove them.</string>
+
+    <string name="NovaConfirmPhoneLinkTitle">Confirm a phone number</string>
+    <string name="NovaConfirmPhoneLinkMessage">A link is asking Telegram to send a confirmation code to %1$s. Any application or web page can hand such a link to the client, not only Telegram. Send the code?</string>
+    <string name="NovaConfirmPhoneLinkUnknown">A link is asking Telegram to send a confirmation code, but it names no number. Any application or web page can hand such a link to the client. Send the code?</string>
+    <string name="NovaConfirmPhoneLinkSend">Send code</string>
+    <string name="NovaContactLinkTitle">Add a contact</string>
+    <string name="NovaContactLinkMessage">A link wants to add somebody to your Telegram contacts and open a chat with them. Who it is becomes known only after Telegram is asked, so no name can be shown here. Add?</string>
+    <string name="NovaContactLinkAdd">Add</string>
+
+    <string name="NovaBotClipboardTitle">Read the clipboard?</string>
+    <string name="NovaBotClipboardRequest">**%1$s** is asking for whatever you copied last. A clipboard often holds a password, a one-time code, or an address copied for something else, and whatever is handed over is kept by the server behind this mini app.</string>
+    <string name="NovaBotStoryFetchTitle">Download this media?</string>
+    <string name="NovaBotStoryFetchRequest">**%1$s** wants to build a story from a file on **%2$s**. Downloading it is a direct connection from this device to that host, outside the proxy, so it sees the real IP address.</string>
 </resources>

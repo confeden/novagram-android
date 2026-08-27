@@ -17,7 +17,7 @@
     <string name="NovaSettingsPinsInfo">PIN приложения защищает доступ после входа. Аварийный PIN, введённый вместо него под принуждением, выполняет выход из всех аккаунтов и уничтожает локальные данные.</string>
     <string name="NovaSettingsPrivacyHeader">Конфиденциальность</string>
     <string name="NovaSettingsScreenshotProtection">Защита от скриншотов</string>
-    <string name="NovaSettingsScreenshotInfo">Блокирует снимки и запись экрана в приватных и секретных чатах. Публичные каналы и группы остаются доступными для обмена.</string>
+    <string name="NovaSettingsScreenshotInfo">Блокирует снимки и запись всего окна NovaGram, включая эскиз в списке недавних, и не требует для этого пароля Telegram. Статьи Instant View и мини-приложения рисуются в отдельных окнах — на них защита не распространяется.</string>
     <string name="NovaPinInvalidLength">PIN должен содержать 4–6 цифр.</string>
     <string name="NovaPinMismatch">Значения PIN не совпали. Создайте PIN заново.</string>
     <string name="NovaPinIncorrect">Неверный PIN. Порядок клавиш изменён.</string>
@@ -168,6 +168,32 @@
     <string name="NovaDeviceChangedReset">Начать заново</string>
     <string name="NovaDeviceChangedResetConfirm">Все локальные файлы этой установки будут удалены, включая переписку, которую здесь всё равно нельзя прочитать. Сеанс на серверах продолжит существовать, пока вы не завершите его с того устройства, которому он принадлежит.</string>
     <string name="NovaDeviceChangedResetting">Удаляем локальные данные…</string>
+    <string name="NovaDeviceUnknownTitle">Пока не удаётся проверить эти данные</string>
+    <string name="NovaDeviceUnknownDescription">Сохранённая авторизация запечатана, а хранилище ключей телефона не ответило, есть ли здесь ключ, который её открывает. Ничего не прочитано и ничего не изменено.\n\nПовторите попытку или перезапустите приложение. Данные не удаляются.</string>
+    <string name="NovaDeviceUnknownRetry">Повторить</string>
     <string name="NovaDeviceBindingTitle">Привязать к устройству</string>
     <string name="NovaDeviceBindingInfo">Скопированная папка данных приложения не даст войти в аккаунт на другом устройстве — даже если PIN не задан. От кода, работающего от имени этого приложения на этом телефоне, защищает только PIN.</string>
+    <string name="NovaDeviceBindingStateOn">Запечатано этим устройством</string>
+    <string name="NovaDeviceBindingStateOff">Выключено — папка данных откроется где угодно</string>
+    <string name="NovaDeviceBindingStatePending">Применяется — файл ещё не перезаписан</string>
+    <string name="NovaDeviceBindingStateUnavailable">В настройке включено, но не действует: хранилище ключей телефона отказало. Попытка повторится при следующем запуске.</string>
+    <string name="NovaDeviceBindingStateForeign">Данные принадлежат другому устройству</string>
+
+    <string name="NovaAutoTranslateTitle">Не включать автоперевод</string>
+    <string name="NovaAutoTranslateInfo">Канал может пометить себя как переводимый, и Telegram включает перевод сам — текст постов уходит на сервер, пока вы читаете. NovaGram эту пометку не читает. Перевод, включённый вами вручную в самом чате, продолжает работать.</string>
+    <string name="NovaContactSyncTitle">Синхронизация контактов</string>
+    <string name="NovaContactSyncInfo">Выгружает в Telegram номер и имя каждой записи телефонной книги, включая людей, у которых Telegram нет. На новых установках выключено. Уже выгруженные контакты остаются на сервере: удалить их можно только в настройках приватности самого Telegram.</string>
+
+    <string name="NovaConfirmPhoneLinkTitle">Подтверждение номера</string>
+    <string name="NovaConfirmPhoneLinkMessage">Ссылка просит Telegram отправить код подтверждения на номер %1$s. Такую ссылку может подсунуть клиенту любое приложение или веб-страница, а не только Telegram. Отправить код?</string>
+    <string name="NovaConfirmPhoneLinkUnknown">Ссылка просит Telegram отправить код подтверждения, но номера в ней нет. Такую ссылку может подсунуть клиенту любое приложение или веб-страница. Отправить код?</string>
+    <string name="NovaConfirmPhoneLinkSend">Отправить код</string>
+    <string name="NovaContactLinkTitle">Добавление контакта</string>
+    <string name="NovaContactLinkMessage">Ссылка добавляет человека в ваши контакты Telegram и открывает с ним чат. Кто это, станет известно только после запроса к Telegram, поэтому имя здесь показать нельзя. Добавить?</string>
+    <string name="NovaContactLinkAdd">Добавить</string>
+
+    <string name="NovaBotClipboardTitle">Прочитать буфер обмена?</string>
+    <string name="NovaBotClipboardRequest">**%1$s** просит то, что вы скопировали последним. В буфере обмена часто оказывается пароль, одноразовый код или адрес, скопированный для другого, а сервер этого мини-приложения сохранит всё, что получит.</string>
+    <string name="NovaBotStoryFetchTitle">Скачать этот файл?</string>
+    <string name="NovaBotStoryFetchRequest">**%1$s** хочет сделать историю из файла на **%2$s**. Загрузка — прямое соединение с этим узлом в обход прокси, так что он увидит настоящий IP-адрес.</string>
 </resources>

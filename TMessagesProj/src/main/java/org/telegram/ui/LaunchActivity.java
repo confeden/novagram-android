@@ -144,6 +144,7 @@ import org.telegram.messenger.utils.WindowVisibilityManager;
 import org.telegram.messenger.video.VideoAds;
 import org.telegram.messenger.voip.VideoCapturerDevice;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
+import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.novagram.update.NovaUpdateChecker;
 import org.telegram.messenger.voip.VoIPGroupNotification;
 import org.telegram.messenger.voip.VoIPPendingCall;
@@ -377,6 +378,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     private FlagSecureReason flagSecureReason;
     private final LiteMode.BatteryReceiver batteryReceiver = new LiteMode.BatteryReceiver();
     private boolean novaPinGateEarlyExit;
+    /**
+     * NovaGram: the one {@code t.me/contact/<token>} the user has just approved
+     * in the dialog. A single-use ticket rather than a set — it is cleared on
+     * the way into the import, so the same link handed to the client twice is
+     * asked about twice.
+     */
+    private String novaConfirmedContactToken;
     private WindowAnimatedInsetsProvider rootAnimatedInsetsListener;
 
     public static LaunchActivity instance;
@@ -450,7 +458,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         getWindow().setBackgroundDrawable(new ActivityWindowEmptyBackgroundDrawable());
         getWindow().setFormat(PixelFormat.OPAQUE);
 
-        flagSecureReason = new FlagSecureReason(getWindow(), () -> SharedConfig.passcodeHash.length() > 0 && !SharedConfig.allowScreenCapture);
+        // NovaGram: the fork's screenshot protection answers first and does not
+        // ask whether a passcode exists. Upstream's condition alone left the
+        // default, passcode-less client capturable — the recents-screen
+        // snapshot and any capture app saw the chat list and the open
+        // conversation. Upstream's own reason is kept behind it so that
+        // "allow screen capture" still means something to a passcode user who
+        // has turned NovaGram's switch off.
+        flagSecureReason = new FlagSecureReason(getWindow(), () ->
+                NovaScreenshotPolicy.shouldSecureWindow(LaunchActivity.this)
+                        || SharedConfig.passcodeHash.length() > 0 && !SharedConfig.allowScreenCapture);
         flagSecureReason.attach();
 
         super.onCreate(savedInstanceState);
@@ -2804,34 +2821,37 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         }
                         if (code != null || UserConfig.getInstance(currentAccount).isClientActivated()) {
                             if (phone != null || phoneHash != null) {
-                                AlertDialog cancelDeleteProgressDialog = new AlertDialog(LaunchActivity.this, AlertDialog.ALERT_TYPE_SPINNER);
-                                cancelDeleteProgressDialog.setCanCancel(false);
-                                cancelDeleteProgressDialog.show();
-
-                                TL_account.sendConfirmPhoneCode req = new TL_account.sendConfirmPhoneCode();
-                                req.hash = phoneHash;
-                                req.settings = new TLRPC.TL_codeSettings();
-                                req.settings.allow_flashcall = false;
-                                req.settings.allow_app_hash = req.settings.allow_firebase = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
-                                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                if (req.settings.allow_app_hash) {
-                                    preferences.edit().putString("sms_hash", BuildVars.getSmsHash()).apply();
-                                } else {
-                                    preferences.edit().remove("sms_hash").apply();
-                                }
-
-                                Bundle params = new Bundle();
-                                params.putString("phone", phone);
-
-                                String finalPhone = phone;
-                                ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
-                                    cancelDeleteProgressDialog.dismiss();
-                                    if (error == null) {
-                                        presentFragment(new LoginActivity().cancelAccountDeletion(finalPhone, params, (TLRPC.TL_auth_sentCode) response));
-                                    } else {
-                                        AlertsCreator.processError(currentAccount, error, getActionBarLayout().getLastFragment(), req);
-                                    }
-                                }), ConnectionsManager.RequestFlagFailOnServerErrors);
+                                // NovaGram: this link makes Telegram text a
+                                // confirmation code to a phone number, and any
+                                // application or web page can hand it to the
+                                // client. Upstream sent the request — and
+                                // rewrote the sms_hash preference — the instant
+                                // the link arrived, so a page merely visited
+                                // could have Telegram send an SMS and, in a
+                                // build without Google services, drop the hash
+                                // the SMS auto-fill matches on. Refusing the
+                                // link outright was rejected: it is Telegram's
+                                // own way of cancelling an account deletion,
+                                // and removing it would take away a recovery
+                                // path with nothing to replace it. So it
+                                // becomes a question, and — exactly as with
+                                // tg://proxy — nothing happens outside the
+                                // confirm button's listener.
+                                final String confirmPhone = phone;
+                                final String confirmPhoneHash = phoneHash;
+                                AlertDialog.Builder confirmBuilder = new AlertDialog.Builder(LaunchActivity.this);
+                                confirmBuilder.setTitle(LocaleController.getString(R.string.NovaConfirmPhoneLinkTitle));
+                                confirmBuilder.setMessage(TextUtils.isEmpty(confirmPhone)
+                                        ? LocaleController.getString(R.string.NovaConfirmPhoneLinkUnknown)
+                                        : LocaleController.formatString(
+                                                "NovaConfirmPhoneLinkMessage",
+                                                R.string.NovaConfirmPhoneLinkMessage,
+                                                PhoneFormat.getInstance().format("+" + confirmPhone)));
+                                confirmBuilder.setPositiveButton(
+                                        LocaleController.getString(R.string.NovaConfirmPhoneLinkSend),
+                                        (dialog, which) -> novaSendConfirmPhoneCode(confirmPhone, confirmPhoneHash));
+                                confirmBuilder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+                                showAlertDialog(confirmBuilder);
                             } else if (username != null || group != null || sticker != null || emoji != null || contactToken != null || folderSlug != null || message != null || game != null || voicechat != null || videochat || auth != null || unsupportedUrl != null || lang != null || code != null || wallPaper != null || inputInvoiceSlug != null || uniqueGiftSlug != null || channelId != null || theme != null || login != null || chatLinkSlug != null || auctionSlug != null || stargiftPreviewSlug != null) {
                                 if (message != null && message.startsWith("@")) {
                                     message = " " + message;
@@ -4006,7 +4026,38 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
             showAlertDialog(builder);
             return;
+        } else if (contactToken != null && !contactToken.equals(novaConfirmedContactToken)) {
+            // NovaGram: t.me/contact/<token> and tg://contact?token= import a
+            // contact and open a chat with them, and upstream did it straight
+            // off the link — a page the user merely opened could make an
+            // unknown account a contact of theirs. The request itself is the
+            // side effect, so the question has to come first, and the client
+            // cannot say who it is until Telegram is asked: the dialog says
+            // that rather than inventing a name. The token is remembered for
+            // this one pass only, so the same link arriving again asks again.
+            final Runnable endProgress = () -> {
+                if (progress != null) {
+                    progress.end();
+                }
+            };
+            AlertDialog.Builder builder = new AlertDialog.Builder(LaunchActivity.this);
+            builder.setTitle(LocaleController.getString(R.string.NovaContactLinkTitle));
+            builder.setMessage(LocaleController.getString(R.string.NovaContactLinkMessage));
+            builder.setPositiveButton(LocaleController.getString(R.string.NovaContactLinkAdd), (dialog, which) -> {
+                novaConfirmedContactToken = contactToken;
+                runLinkRequest(intentAccount, username, group, sticker, emoji, botUser, botChat, botChannel, botChatAdminParams, message, contactToken, folderSlug, text, hasUrl, messageId, channelId, threadId, commentId, game, auth, lang, unsupportedUrl, code, loginToken, wallPaper, inputInvoiceSlug, uniqueGiftSlug, theme, voicechat, videochat, livestream, 1, videoTimestamp, setAsAttachBot, attachMenuBotToOpen, attachMenuBotChoose, botAppMaybe, botAppStartParam, progress, forceNotInternalForApps, storyId, liveStory, storyAlbumId, giftCollectionId, auctionSlug, stargiftPreviewSlug, isBoost, chatLinkSlug, botCompact, botFullscreen, openedTelegram, openProfile, forceRequest, referrer, taskId, openDirect, pollOptionId);
+            });
+            builder.setNegativeButton(LocaleController.getString(R.string.Cancel), (dialog, which) -> endProgress.run());
+            // Back and a tap outside are answers too, and the spinner on the
+            // link that started this has to stop for all three. The dismiss
+            // listener is not usable here — showAlertDialog overwrites it.
+            builder.setOnCancelListener(dialog -> endProgress.run());
+            showAlertDialog(builder);
+            return;
         }
+        // Spent on the way in: what follows sends the import, and a token left
+        // behind would let a second link through without a question.
+        novaConfirmedContactToken = null;
         final AlertDialog progressDialog = new AlertDialog(this, AlertDialog.ALERT_TYPE_SPINNER);
         final Runnable dismissLoading = () -> {
             if (progress != null) {
@@ -6919,6 +6970,57 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && frameMetricsOverlayView != null) {
             frameMetricsOverlayView.detach();
+        }
+    }
+
+    /**
+     * NovaGram: the body of upstream's {@code tg://confirmphone} handler, moved
+     * behind a confirmation. Every side effect it used to have on arrival of the
+     * link — the {@code sms_hash} rewrite included — now happens here, and this
+     * runs only from the positive button of the dialog in {@code handleIntent}.
+     */
+    private void novaSendConfirmPhoneCode(String phone, String phoneHash) {
+        AlertDialog cancelDeleteProgressDialog = new AlertDialog(LaunchActivity.this, AlertDialog.ALERT_TYPE_SPINNER);
+        cancelDeleteProgressDialog.setCanCancel(false);
+        cancelDeleteProgressDialog.show();
+
+        TL_account.sendConfirmPhoneCode req = new TL_account.sendConfirmPhoneCode();
+        req.hash = phoneHash;
+        req.settings = new TLRPC.TL_codeSettings();
+        req.settings.allow_flashcall = false;
+        req.settings.allow_app_hash = req.settings.allow_firebase = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
+        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+        if (req.settings.allow_app_hash) {
+            preferences.edit().putString("sms_hash", BuildVars.getSmsHash()).apply();
+        } else {
+            preferences.edit().remove("sms_hash").apply();
+        }
+
+        Bundle params = new Bundle();
+        params.putString("phone", phone);
+
+        String finalPhone = phone;
+        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            cancelDeleteProgressDialog.dismiss();
+            if (error == null) {
+                presentFragment(new LoginActivity().cancelAccountDeletion(finalPhone, params, (TLRPC.TL_auth_sentCode) response));
+            } else {
+                AlertsCreator.processError(currentAccount, error, getActionBarLayout().getLastFragment(), req);
+            }
+        }), ConnectionsManager.RequestFlagFailOnServerErrors);
+    }
+
+    /**
+     * NovaGram: re-asks the screenshot policy after its switch was flipped.
+     * {@link FlagSecureReason} only re-evaluates when it is told to, and the
+     * NovaGram settings screen is a fragment of this very activity — without
+     * this the new answer would arrive at the next start, i.e. after the
+     * screenshot the user just tried to prevent.
+     */
+    public static void novaRefreshFlagSecure() {
+        LaunchActivity activity = instance;
+        if (activity != null && !activity.isFinishing() && activity.flagSecureReason != null) {
+            activity.flagSecureReason.invalidate();
         }
     }
 

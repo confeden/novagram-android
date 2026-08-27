@@ -324,6 +324,13 @@ public class FileLog {
         }
         try {
             logQueue = new DispatchQueue("logQueue");
+            // NovaGram: the expiry sweep is a directory listing plus a delete per
+            // file, and init() runs on the main thread at startup, so it is posted
+            // to the log queue rather than done here. The files this run is about to
+            // create are younger than the threshold, so the ordering does not
+            // matter.
+            final File logsDir = currentFile == null ? null : currentFile.getParentFile();
+            logQueue.postRunnable(() -> deleteExpiredLogs(logsDir));
             currentFile.createNewFile();
             FileOutputStream stream = new FileOutputStream(currentFile);
             streamWriter = new OutputStreamWriter(stream);
@@ -595,6 +602,58 @@ public class FileLog {
                     e.printStackTrace();
                 }
             });
+        }
+    }
+
+    /**
+     * NovaGram: how long anything in the logs directory is allowed to survive.
+     *
+     * <p>What accumulates there is not innocuous. The MTProto log names every
+     * request the client makes; {@code _net.txt} is written by the native layer;
+     * and {@link #dumpMemory} drops a whole {@code _heap.hprof} beside them, which
+     * is a copy of the process heap — message text, contact names and whatever keys
+     * were resident at the moment it was taken. Upstream never deletes any of it on
+     * its own: {@link #cleanupLogs()} has no age threshold and is reachable only
+     * from the debug menu, so on a device where logging was ever switched on the
+     * pile grows for the life of the installation, and
+     * {@code ProfileActivity.sendLogs} will hand the whole directory to any
+     * application the user picks out of a chooser.</p>
+     *
+     * <p>Twenty-four hours is the same window the client itself already treats as
+     * "still interesting" when it builds that archive.</p>
+     */
+    public static final long MAX_LOG_AGE_MS = 24L * 60 * 60 * 1000L;
+
+    /**
+     * NovaGram: drops every log older than {@link #MAX_LOG_AGE_MS}.
+     *
+     * <p>Called from {@link #init()}, so it runs once per process start whether or
+     * not anyone opens the debug menu. The files this run is about to write are
+     * younger than the threshold, so there is nothing here to exclude.</p>
+     */
+    private static void deleteExpiredLogs(File dir) {
+        if (dir == null) {
+            return;
+        }
+        try {
+            final File[] files = dir.listFiles();
+            if (files == null) {
+                return;
+            }
+            final long now = System.currentTimeMillis();
+            for (int a = 0; a < files.length; a++) {
+                final File file = files[a];
+                if (file == null || file.isDirectory()) {
+                    continue;
+                }
+                // A file dated in the future — a clock that was wrong, or moved —
+                // is expired too. Keeping it would make it immortal.
+                if (Math.abs(now - file.lastModified()) > MAX_LOG_AGE_MS) {
+                    file.delete();
+                }
+            }
+        } catch (Throwable e) {
+            e.printStackTrace();
         }
     }
 

@@ -12,6 +12,7 @@ import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
@@ -122,8 +123,19 @@ public class RichMediaUploader implements NotificationCenter.NotificationCenterD
         if (isDocument) {
             Utilities.globalQueue.postRunnable(() -> {
                 documentThumbPath = generateDocumentThumb();
+                // NovaGram: this branch uploads the bytes the user picked exactly
+                // as they are, so it needs the same scrub the ordinary "send as
+                // file" path runs — SendMessagesHelper.processSendingDocument
+                // calls this on the path it is about to send. Done here rather
+                // than in beginUpload because it reads the whole file and this
+                // runnable is already off the UI thread. The thumbnail above is
+                // re-encoded and carries nothing over. What the scrubber cleans
+                // is JPEG and PNG; a HEIC or an MP4 attached as a file goes out
+                // untouched, which is the fork's stated boundary, not a gap this
+                // change closes.
+                final String documentPath = sanitized(path);
                 AndroidUtilities.runOnUIThread(() -> {
-                    if (!cancelled && !finished) beginUpload(path);
+                    if (!cancelled && !finished) beginUpload(documentPath);
                 });
             });
             return;
@@ -175,7 +187,7 @@ public class RichMediaUploader implements NotificationCenter.NotificationCenterD
                 bitmap = ImageLoader.loadBitmap(src, null, 800, 800, true);
             }
             if (bitmap == null) {
-                return src;
+                return sanitized(src);
             }
             final File dst = new File(FileLoader.getDirectory(FileLoader.MEDIA_DIR_CACHE), "rich_jpeg_" + Math.abs(src.hashCode()) + ".jpg");
             boolean ok = false;
@@ -185,15 +197,40 @@ public class RichMediaUploader implements NotificationCenter.NotificationCenterD
                 bitmap.recycle();
             }
             if (!ok || dst.length() <= 0) {
-                return src;
+                return sanitized(src);
             }
             if (isJpeg) {
                 final long srcLen = new File(src).length();
                 if (srcLen > 0 && dst.length() >= srcLen) {
-                    return src;
+                    return sanitized(src);
                 }
             }
             return dst.getAbsolutePath();
+        } catch (Throwable ignore) {
+            return sanitized(src);
+        }
+    }
+
+    /**
+     * NovaGram: what a path that could not be re-encoded still has to go through.
+     *
+     * <p>Re-encoding is what normally drops the metadata — a bitmap knows
+     * nothing about the EXIF of the file it was decoded from — so every way out
+     * of {@link #ensureJpegPath} that skips the re-encode is exactly the case
+     * where nothing was dropped, and all four of them used to hand back the
+     * file the user picked with its camera model, its timestamp and its
+     * coordinates intact. They now go through the fork's scrubber, the same one
+     * the ordinary send path uses; it walks the segments and drops them without
+     * re-encoding, and returns the path it was given when there was nothing to
+     * remove.</p>
+     *
+     * <p>It cleans JPEG and PNG and nothing else. A HEIC that failed to decode
+     * leaves here as it arrived — that is the fork's documented boundary, not
+     * something this method closes.</p>
+     */
+    private static String sanitized(String src) {
+        try {
+            return NovaOutgoingMetadata.sanitizeDocument(src);
         } catch (Throwable ignore) {
             return src;
         }

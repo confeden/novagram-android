@@ -604,8 +604,12 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_org_telegram_messenger_voip_GroupCa
     }
 }
 
+// Renamed so that the Java side owns the plain name: NativeInstance
+// .setJoinResponsePayload is now an ordinary method that filters the addresses
+// out of the payload before it gets here, and no caller can skip it. See
+// NovaCallPolicy.filterJoinResponseAddresses.
 extern "C"
-JNIEXPORT void JNICALL Java_org_telegram_messenger_voip_NativeInstance_setJoinResponsePayload(JNIEnv *env, jobject obj, jstring payload) {
+JNIEXPORT void JNICALL Java_org_telegram_messenger_voip_NativeInstance_setJoinResponsePayloadNative(JNIEnv *env, jobject obj, jstring payload) {
     InstanceHolder *instance = getInstanceHolder(env, obj);
     if (instance->groupNativeInstance == nullptr) {
         return;

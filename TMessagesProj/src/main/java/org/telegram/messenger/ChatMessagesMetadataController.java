@@ -1,5 +1,6 @@
 package org.telegram.messenger;
 
+import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.tgnet.tl.TL_update;
@@ -124,6 +125,22 @@ public class ChatMessagesMetadataController {
 
     public void loadReactionsForMessages(long dialogId, ArrayList<MessageObject> visibleObjects) {
         if (visibleObjects.isEmpty()) {
+            return;
+        }
+        if (NovaReadStatus.isHidden(chatActivity.getCurrentAccount(), dialogId)) {
+            // NovaGram: this asks the server about exactly the messages on the
+            // screen, ten positions either way, every fifteen seconds. The
+            // other side is not told anything by it, but the server is told
+            // precisely which messages are being looked at and when — which is
+            // the very thing withheld from it in this dialog, in a more exact
+            // form than a read receipt. In a dialog where receipts are held
+            // back the reaction counts simply stop refreshing themselves;
+            // reactions still arrive with the ordinary updates.
+            //
+            // Nothing is held: this is a question, not an acknowledgement, so
+            // there is no local half that has already run. The sweep repeats
+            // for as long as the chat is open, so the moment the dialog is
+            // revealed the next one goes out by itself.
             return;
         }
         TLRPC.TL_messages_getMessagesReactions req = new TLRPC.TL_messages_getMessagesReactions();

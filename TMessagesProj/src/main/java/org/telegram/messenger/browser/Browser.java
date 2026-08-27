@@ -370,12 +370,18 @@ public class Browser {
                 }
             }
             String host = AndroidUtilities.getHostAuthority(uri.toString().toLowerCase());
-            if (AccountInstance.getInstance(currentAccount).getMessagesController().autologinDomains.contains(host)) {
-                final String autologin_token = URLEncoder.encode(AccountInstance.getInstance(UserConfig.selectedAccount).getMessagesController().autologinToken, "UTF-8");
-                uri = uri.buildUpon()
-                    .appendQueryParameter("autologin_token", autologin_token)
-                    .build();
-            }
+            // NovaGram: upstream appends ?autologin_token=<account credential> for
+            // every host in autologinDomains — a set the server sends and can extend
+            // at any time — and then hands the finished URL to another application
+            // through ACTION_VIEW or a Custom Tab. A bearer token in a query string
+            // is written down by everything it passes: the browser's history and
+            // sync, its address bar, the Referer of every third-party resource on
+            // the landing page, and any proxy or extension in between. That is a
+            // live credential for this account leaving the app in the clear, to buy
+            // one skipped login form. It is not appended; the site's ordinary login
+            // still works.
+            //
+            // if (AccountInstance.getInstance(currentAccount).getMessagesController().autologinDomains.contains(host)) { ... }
             if (allowCustom && !(uri != null && MessagesController.getInstance(currentAccount).isWebBrowserOpenInApp(uri.toString()) || isInstantViewOpen()) && MessagesController.getInstance(currentAccount).isWebBrowserUseCustomTabs() && !internalUri && !scheme.equals("tel") && !isTonsite(uri.toString())) {
                 if (forceBrowser[0] || !openInExternalApp(context, uri.toString(), false) || !hasAppToOpen(context, uri.toString())) {
                     if (MessagesController.getInstance(currentAccount).authDomains.contains(host)) {

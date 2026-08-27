@@ -17,6 +17,14 @@ public enum NovaPrivacyFeature {
     SAVED_MESSAGES_RETENTION("saved_messages_retention", Scope.ACCOUNT, true, true),
     SCREENSHOT_PROTECTION("screenshot_protection", Scope.GLOBAL, true, true),
     METADATA_SANITIZATION("metadata_sanitization", Scope.GLOBAL, true, true),
+    // A channel may raise its own "translate me" flag, and upstream uses that
+    // flag as the *default* for every reader: merely opening such a channel
+    // starts shipping post text to Telegram to be translated, with nothing
+    // asked and nothing pressed. On by default, and GLOBAL for the same reason
+    // as the screenshot switch — it describes what this client does, not what
+    // one account has agreed to. Translation the user turns on by hand in a
+    // dialog is stored per dialog and is not touched by this.
+    AUTOTRANSLATE_BLOCKED("autotranslate_blocked", Scope.GLOBAL, true, true),
     READ_STATUS_HIDING("read_status_hiding", Scope.ACCOUNT, true, true),
     NOTIFICATION_TEXT_OFF_SERVERS("notification_text_off_servers", Scope.ACCOUNT, true, true),
     // What this device is allowed to draw, as opposed to what the servers are

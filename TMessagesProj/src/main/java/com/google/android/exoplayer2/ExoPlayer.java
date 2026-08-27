@@ -521,7 +521,7 @@ public interface ExoPlayer extends Player {
      *   <li>{@code releaseTimeoutMs}: {@link #DEFAULT_RELEASE_TIMEOUT_MS}
      *   <li>{@code detachSurfaceTimeoutMs}: {@link #DEFAULT_DETACH_SURFACE_TIMEOUT_MS}
      *   <li>{@code pauseAtEndOfMediaItems}: {@code false}
-     *   <li>{@code usePlatformDiagnostics}: {@code true}
+     *   <li>{@code usePlatformDiagnostics}: {@code false}
      *   <li>{@link Clock}: {@link Clock#DEFAULT}
      *   <li>{@code playbackLooper}: {@code null} (create new thread)
      * </ul>
@@ -677,7 +677,8 @@ public interface ExoPlayer extends Player {
       clock = Clock.DEFAULT;
       releaseTimeoutMs = DEFAULT_RELEASE_TIMEOUT_MS;
       detachSurfaceTimeoutMs = DEFAULT_DETACH_SURFACE_TIMEOUT_MS;
-      usePlatformDiagnostics = true;
+      // NovaGram: privacy hardening - disable platform diagnostics by default
+      usePlatformDiagnostics = false;
     }
 
     /**
@@ -1086,7 +1087,16 @@ public interface ExoPlayer extends Player {
     @CanIgnoreReturnValue
     public Builder setUsePlatformDiagnostics(boolean usePlatformDiagnostics) {
       checkState(!buildCalled);
-      this.usePlatformDiagnostics = usePlatformDiagnostics;
+      // NovaGram: the argument is accepted and ignored when it asks for diagnostics
+      // to be on. On API 31+ this flag makes the player open a session with the
+      // platform MediaMetricsManager and report codecs, durations, errors and the
+      // network type of every playback — including received voice messages and
+      // videos — outside the application's own data. The fork keeps it off, and the
+      // setter is left in place with its signature intact so upstream call sites,
+      // now and after the next sync, still compile.
+      if (!usePlatformDiagnostics) {
+        this.usePlatformDiagnostics = false;
+      }
       return this;
     }
 

@@ -10,6 +10,7 @@ import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
@@ -18,6 +19,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ChatActivity;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -142,6 +144,8 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         saveScheduled = false;
         if (observing) {
             observing = false;
+            NotificationCenter.getInstance(currentAccount)
+                    .removeObserver(this, NotificationCenter.didReceiveNewMessages);
             NotificationCenter.getInstance(currentAccount)
                     .removeObserver(this, NotificationCenter.messageReceivedByServer2);
             NotificationCenter.getInstance(currentAccount)
@@ -304,6 +308,14 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         if (entry == null) {
             return 0;
         }
+        if ((entry.flags & NovaAutoDeleteStore.FLAG_ERASE) == 0
+                && entry.stage == NovaAutoDeleteStore.STAGE_REPLACE
+                && !appliesTo(dialogId)) {
+            // Still on disk, but process() will drop it rather than run it.
+            // Counting down to a deletion that is not coming is the same lie
+            // as running it after the switch was turned off.
+            return 0;
+        }
         int remaining = entry.dueAt - now();
         // An entry that is already due still exists, so it reports a second
         // rather than disappearing from the menu.
@@ -328,6 +340,8 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             }
             if (!observing) {
                 observing = true;
+                NotificationCenter.getInstance(currentAccount)
+                        .addObserver(this, NotificationCenter.didReceiveNewMessages);
                 NotificationCenter.getInstance(currentAccount)
                         .addObserver(this, NotificationCenter.messageReceivedByServer2);
                 NotificationCenter.getInstance(currentAccount)
@@ -413,6 +427,10 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             onLoggedOut();
             return;
         }
+        if (id == NotificationCenter.didReceiveNewMessages) {
+            onNewMessages(account, args);
+            return;
+        }
         if (id != NotificationCenter.messageReceivedByServer2
                 || account != currentAccount
                 || args == null
@@ -434,14 +452,76 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
     }
 
     /**
-     * Queues a message that the server has just acknowledged.
+     * Every message that enters a dialog arrives here, whoever put it there:
+     * the send confirmation below only knows about messages this process sent
+     * itself, and misses a scheduled message coming due, "Send now", a send
+     * whose mode the server changed under it, and a business quick reply the
+     * server writes on the user's behalf. Those all reach the dialog through
+     * {@code MessagesController.updateInterfaceWithMessages}, so hooking the
+     * one point they converge on is what keeps the next send path upstream
+     * adds from quietly escaping the queue. It is the same choke point the
+     * desktop half uses ({@code Data::Session::newItemAdded}).
      *
-     * <p>This is the point where the client identifier becomes the server one,
-     * which is why tracking happens here rather than at send time: the queue
-     * must hold the identifier the deletion request will use.</p>
+     * <p>Deliberately not a replacement for the send confirmation: a message
+     * still being sent enters here with a client side identifier, and the
+     * queue must hold the one the server knows.</p>
+     */
+    private void onNewMessages(int account, Object[] args) {
+        if (account != currentAccount || args == null || args.length < 4) {
+            return;
+        }
+        if (!(args[0] instanceof Long)
+                || !(args[1] instanceof ArrayList)
+                || !(args[3] instanceof Integer)) {
+            return;
+        }
+        if (Boolean.TRUE.equals(args[2])) {
+            // Scheduled messages are not sent yet; they enter the queue when
+            // the server writes them into the dialog for real.
+            return;
+        }
+        if ((Integer) args[3] != ChatActivity.MODE_DEFAULT) {
+            // The other modes are not a conversation: a quick reply seen in
+            // that mode is the stored template, not a message anybody has
+            // received, and its identifier belongs to a different space.
+            return;
+        }
+        long dialogId = (Long) args[0];
+        ArrayList<?> messages = (ArrayList<?>) args[1];
+        for (int i = 0, count = messages.size(); i < count; i++) {
+            Object item = messages.get(i);
+            if (!(item instanceof MessageObject)) {
+                continue;
+            }
+            TLRPC.Message message = ((MessageObject) item).messageOwner;
+            // A client side identifier means the send has not finished, and
+            // the confirmation below queues that message with the server one.
+            // Somebody else's message is dropped here rather than in track(),
+            // because every incoming message in the account passes through
+            // this loop and track() would read the settings file for each.
+            if (message == null || message.id <= 0 || !message.out) {
+                continue;
+            }
+            track(dialogId, message.id, message);
+        }
+    }
+
+    /**
+     * Queues a message the client knows the server has.
+     *
+     * <p>Never called with a client side identifier: the queue must hold the
+     * identifier the deletion request will use, and the send confirmation is
+     * the point where the first becomes the second.</p>
      */
     private void track(long dialogId, int messageId, TLRPC.Message message) {
         if (messageId <= 0 || wiped || !isEnabled(currentAccount) || isSelfDialog(dialogId)) {
+            return;
+        }
+        if (isEphemeral(messageId, message)) {
+            // An ephemeral message never existed on the server and is already
+            // gone from the local database, so its identifier can only ever
+            // match a later ephemeral message with the same low bits. Desktop
+            // discards these the same way, through IsServerMsgId.
             return;
         }
         // Per-chat rules are only known once the sealed file has been read, so
@@ -491,7 +571,10 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             NovaAutoDeleteStore.Report report = state.startReport(dialogId);
             for (int i = 0, count = messages.size(); i < count; i++) {
                 TLRPC.Message message = messages.get(i);
-                if (message == null || message.id <= 0 || isService(message)) {
+                if (message == null
+                        || message.id <= 0
+                        || isService(message)
+                        || isEphemeral(message.id, message)) {
                     continue;
                 }
                 report.queued++;
@@ -666,8 +749,30 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
     }
 
     private void process(NovaAutoDeleteStore.Entry entry) {
-        if (entry.messageId <= 0) {
-            // The send never completed, so there is nothing on the server.
+        if ((entry.flags & NovaAutoDeleteStore.FLAG_ERASE) == 0
+                && entry.stage == NovaAutoDeleteStore.STAGE_REPLACE
+                && !appliesTo(entry.dialogId)) {
+            // The rules are read again here, not only when the message was
+            // sent. Switching the feature off, choosing "keep my messages
+            // here", or being made an administrator of the group has to spare
+            // what is already waiting, otherwise the switch says one thing and
+            // the queue does another. Two exceptions: Erase evidence is a
+            // direct order and is subject to none of this, and a message whose
+            // text has already become the dot is finished rather than dropped,
+            // because its content is gone either way and a dot left standing
+            // for good is a worse trace than no message at all.
+            //
+            // A dialog the controller has not loaded reads as "applies": the
+            // admin test cannot answer without the chat, and dropping on a
+            // missing answer would empty the queue after every cold start.
+            drop(entry);
+            return;
+        }
+        if (entry.messageId <= 0 || isEphemeralId(entry.messageId)) {
+            // The send never completed, or the identifier is a packed
+            // ephemeral one written by an older build: either way there is
+            // nothing on the server this identifier addresses, and asking for
+            // its deletion locally would hit whatever now carries it.
             count(entry, Outcome.SKIPPED);
             drop(entry);
             return;
@@ -907,6 +1012,25 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
 
     private static boolean isService(TLRPC.Message message) {
         return message.action != null && !(message.action instanceof TLRPC.TL_messageActionEmpty);
+    }
+
+    /**
+     * Whether this is an ephemeral message, which the queue has no business
+     * holding. Nothing of it ever reached the server, and its identifier is a
+     * fabricated one: {@code MessageObject.ephemeralMessageIdPack} keeps the
+     * low 28 bits and stamps {@code 0x60000000} over the rest, so the only
+     * thing it can ever match is another ephemeral message. Telegram deletes
+     * these from the local database the moment they are stored, so a queue
+     * entry for one is dead weight that comes due days later against whatever
+     * identifier has been minted in the meantime.
+     */
+    private static boolean isEphemeral(int messageId, TLRPC.Message message) {
+        return isEphemeralId(messageId)
+                || (message != null && MessageObject.isEphemeral(message));
+    }
+
+    private static boolean isEphemeralId(int messageId) {
+        return MessageObject.isEphemeralMessageId(messageId);
     }
 
     /** Whether the dot replacement is possible at all for this message. */
