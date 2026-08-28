@@ -45,8 +45,14 @@ public class NovaPrivacyContractTest {
     @Test
     public void privacyDefaultsAreExplicit() {
         for (NovaPrivacyFeature feature : NovaPrivacyFeature.values()) {
-            if (feature == NovaPrivacyFeature.PROTECTED_CALLS) {
-                assertFalse(feature.isDefaultEnabled());
+            // Two exceptions, for two different reasons. PROTECTED_CALLS is a
+            // security invariant that was never a user setting. STORIES_HIDDEN
+            // is the one switch that changes what the user sees, so it waits to
+            // be asked for. Everything else protects something the user cannot
+            // see and is therefore on out of the box.
+            if (feature == NovaPrivacyFeature.PROTECTED_CALLS
+                    || feature == NovaPrivacyFeature.STORIES_HIDDEN) {
+                assertFalse(feature.name(), feature.isDefaultEnabled());
             } else {
                 assertTrue(feature.name(), feature.isDefaultEnabled());
             }

@@ -31,6 +31,12 @@ public enum NovaPrivacyFeature {
     // allowed to compose. A property of the screen in front of the user, so
     // GLOBAL: the desktop fork keeps the same switch device-wide too.
     NOTIFICATION_TEXT_HIDDEN_LOCALLY("notification_text_hidden_locally", Scope.GLOBAL, true, true),
+    // The stories row above the chat list, the ring around an avatar and the
+    // camera button. GLOBAL for the same reason as the row above — it says
+    // what this client draws, not what one account agreed to. The only entry
+    // here that is off by default: it takes a working part of Telegram off the
+    // screen, and a change the user can see has to be the user's choice.
+    STORIES_HIDDEN("stories_hidden", Scope.GLOBAL, false, true),
     SEARCH_HISTORY_PROTECTION("search_history_protection", Scope.ACCOUNT, true, true),
     SHOW_PEER_IDS("show_peer_ids", Scope.ACCOUNT, true, true),
     ERASE_EVIDENCE("erase_evidence", Scope.ACCOUNT, true, true),

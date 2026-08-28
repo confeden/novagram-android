@@ -45,6 +45,7 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaStoriesVisibility;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLObject;
@@ -118,6 +119,22 @@ public class StoriesUtilities {
     };
 
     public static void drawAvatarWithStory(long dialogId, Canvas canvas, ImageReceiver avatarImage, boolean hasStories, AvatarStoryParams params) {
+        if (NovaStoriesVisibility.isHidden()) {
+            // Clearing hasStories would not be enough: below this line the ring
+            // is also drawn from the hidden-stories segments, from an explicit
+            // forceState, and from getPredictiveUnreadState(), which rings a
+            // dialog whose stories were never loaded at all. The plain avatar
+            // is the whole of what this call has to leave on screen. Nothing is
+            // written to params beyond this one flag, so switching the setting
+            // back off animates in from whatever state the cell last held.
+            // drawnLive has to be cleared, though: cells are recycled, and a
+            // stale "live" would keep hiding the auto-delete clock on a chat
+            // that has one.
+            params.drawnLive = false;
+            avatarImage.setImageCoords(params.originalAvatarRect);
+            avatarImage.draw(canvas);
+            return;
+        }
         StoriesController storiesController = MessagesController.getInstance(UserConfig.selectedAccount).getStoriesController();
         boolean animated = params.animate;
         if (params.dialogId != dialogId) {

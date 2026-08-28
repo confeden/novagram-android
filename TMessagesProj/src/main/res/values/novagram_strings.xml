@@ -195,6 +195,9 @@
 
     <string name="NovaBotClipboardTitle">Read the clipboard?</string>
     <string name="NovaBotClipboardRequest">**%1$s** is asking for whatever you copied last. A clipboard often holds a password, a one-time code, or an address copied for something else, and whatever is handed over is kept by the server behind this mini app.</string>
+    <string name="NovaHideStories">Hide stories</string>
+    <string name="NovaHideStoriesEnabled">The stories row, the rings around avatars and the camera button are gone, and pulling the list down no longer brings them back. This is a screen setting: a story link opened from elsewhere still plays.</string>
+
     <string name="NovaBotStoryFetchTitle">Download this media?</string>
     <string name="NovaBotStoryFetchRequest">**%1$s** wants to build a story from a file on **%2$s**. Downloading it is a direct connection from this device to that host, outside the proxy, so it sees the real IP address.</string>
 </resources>

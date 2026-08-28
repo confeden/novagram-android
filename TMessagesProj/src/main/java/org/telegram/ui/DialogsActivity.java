@@ -130,6 +130,7 @@ import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.XiaomiUtilities;
 import org.telegram.messenger.browser.Browser;
+import org.telegram.messenger.novagram.privacy.NovaStoriesVisibility;
 import org.telegram.messenger.utils.FBool;
 import org.telegram.messenger.utils.GradientProtectionDrawable;
 import org.telegram.messenger.utils.SearchTextWatcher;
@@ -4689,7 +4690,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             viewPage.dialogsAdapter.setRecyclerListView(viewPage.listView);
             viewPage.dialogsAdapter.setForceShowEmptyCell(afterSignup);
             if (viewPage.dialogsType == DIALOGS_TYPE_FORWARD) {
-                viewPage.dialogsAdapter.setAllowForwardAsStories(getMessagesController().storiesEnabled() && delegate != null && delegate.canSelectStories());
+                // "Send as story" is the last way into stories left in a list
+                // that has none of the others.
+                viewPage.dialogsAdapter.setAllowForwardAsStories(getMessagesController().storiesEnabled() && !NovaStoriesVisibility.isHidden() && delegate != null && delegate.canSelectStories());
             }
 
             if (AndroidUtilities.isTablet() && openedDialogId.dialogId != 0) {
@@ -8855,7 +8858,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             floatingButton3.setButtonVisible(isVisible, animated);
         }
         if (floatingButtonStories != null) {
-            floatingButtonStories.setButtonVisible(isVisible, animated);
+            floatingButtonStories.setButtonVisible(isVisible && !NovaStoriesVisibility.isHidden(), animated);
         }
     }
 
@@ -8877,7 +8880,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     public boolean storiesEnabled = true;
     private void updateStoriesPosting() {
-        final boolean storiesEnabled = getMessagesController().storiesEnabled();
+        // The camera button and the hint that points at it both hang off this
+        // flag, which otherwise answers whether the account may post at all.
+        // Reusing it means the hint cannot appear pointing at a button the
+        // fork has just taken away.
+        final boolean storiesEnabled = getMessagesController().storiesEnabled() && !NovaStoriesVisibility.isHidden();
         if (this.storiesEnabled != storiesEnabled) {
             updateFloatingButtonOffset();
             if (!this.storiesEnabled && storiesEnabled && storyHint != null) {
@@ -12756,7 +12763,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
         boolean onlySelfStories = !isArchive() && getStoriesController().hasOnlySelfStories();
         boolean newVisibility;
-        if (communityId != 0) {
+        if (NovaStoriesVisibility.isHidden()) {
+            // Answering here rather than hiding the view is what closes the
+            // pull-down: the reveal is driven by hasStories through
+            // getMaxScrollYOffsetWithoutSearch(), so a cell that is merely GONE
+            // still leaves the list a gap to overscroll into and the gesture
+            // scrolls the row back up into it.
+            newVisibility = false;
+            onlySelfStories = false;
+        } else if (communityId != 0) {
             newVisibility = false;
         } else if (isArchive()) {
             newVisibility = !getStoriesController().getHiddenList().isEmpty();
@@ -13669,16 +13684,14 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     }
                 });
             }
-            io.show();
-            io.setTranslationY(-dp(64));
+            showItemOptionsAtActionBar(io);
             return;
         }
 
         if (isArchive()) {
             io.add(R.drawable.msg_customize, getString(R.string.ArchiveSettings), () -> presentFragment(new ArchiveSettingsActivity()));
             io.add(R.drawable.msg_help, getString(R.string.HowDoesItWork), this::showArchiveHelp);
-            io.show();
-            io.setTranslationY(-dp(64));
+            showItemOptionsAtActionBar(io);
             return;
         }
 
@@ -13766,6 +13779,24 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             });
         }
 
+        if (NovaStoriesVisibility.menuRowVisible()) {
+            // Its own group, at the end of the upstream block. "Above the proxy
+            // row" cannot be an anchor: that row is there only while a proxy is
+            // configured, so tying this one to it would move it every time a
+            // proxy is added or dropped. Tied to the block above instead, it is
+            // always the same distance from the top of the menu, and the proxy
+            // group simply appears underneath it when there is one.
+            io.addGap();
+            io.addChecked(NovaStoriesVisibility.isHidden(), R.drawable.msg_stories_myhide,
+                    NovaStoriesVisibility.menuRowText(), () -> {
+                NovaStoriesVisibility.toggleFromMenu(this);
+                updateStoriesPosting();
+                updateStoriesVisibility(true);
+                updateFloatingButtonVisibility(true);
+                updateVisibleRows(0);
+            });
+        }
+
         if (proxyMenuSubItem != null) {
             proxyMenuSubItem.subtextView.setTextColor(getThemedColor(Theme.key_groupcreate_sectionText));
             proxyMenuSubItem.setOnClickListener(v -> {
@@ -13787,8 +13818,44 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
 
+        showItemOptionsAtActionBar(io);
+    }
+
+    /**
+     * Shows the options menu with the top of its card on the top bar, whatever
+     * the menu ended up containing.
+     *
+     * <p>Upstream drops the menu under the "..." button and then lifts it by a
+     * flat {@code dp(64)}: the portrait action bar (56) plus the popup card's
+     * own shadow padding (8). That is what the lift is compensating for — it
+     * pulls the card up from under the button to the top of the bar — and it is
+     * right only while both numbers are, which a landscape or tablet action bar
+     * is not.</p>
+     *
+     * <p>Worse, it is a delta applied to a position that was already decided.
+     * {@link ItemOptions#show()} measures the menu and, if it does not fit
+     * below the button, re-anchors it so that its <em>bottom</em> sits at the
+     * button instead — off the top of the screen, from where the window manager
+     * puts the card back down across the title. With the fork's row added and
+     * the proxy row conditional, the height is no longer a constant, so that
+     * decision must stop mattering. Two changes: the height is capped to the
+     * room that exists, so the menu scrolls on a short screen instead of being
+     * re-anchored; and the offset is computed from where {@code show()} really
+     * put the card, so the top edge lands in the same place with the proxy row,
+     * without it, and whichever branch was taken.</p>
+     */
+    private void showItemOptionsAtActionBar(ItemOptions io) {
+        final int[] anchor = new int[2];
+        optionsItem.getLocationInWindow(anchor);
+        final int anchorBottom = anchor[1] + optionsItem.getMeasuredHeight();
+        final int bottomLimit = AndroidUtilities.displaySize.y - AndroidUtilities.navigationBarHeight;
+        // dp(16) is the clearance ItemOptions itself insists on before calling
+        // the menu too tall, so leaving any less would not settle the question.
+        io.setMaxHeight(Math.max(dp(120), bottomLimit - anchorBottom - dp(16)));
         io.show();
-        io.setTranslationY(-dp(64));
+        // dp(8) is the card's shadow padding: subtracting it puts the drawn
+        // edge, not the window edge, at the top of the bar.
+        io.setTranslationY(AndroidUtilities.statusBarHeight - dp(8) - io.getOffsetY());
     }
 
     @Override
