@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
+import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
@@ -607,18 +608,27 @@ public final class NovaDeviceLock {
         }
         try (FileInputStream input = new AtomicFile(file).openRead()) {
             DataInputStream stream = new DataInputStream(input);
+            // A file we cannot parse is not a file sealed elsewhere. It is a
+            // version this build does not know - the same downgrade trap the
+            // desktop half hit twice, G39 and G40 - or plain corruption. Both
+            // are reported as "could not ask", because the alternative is
+            // offering to wipe an installation whose data may be perfectly
+            // good, and neither of them is evidence of another device.
             if (stream.readInt() != FILE_MAGIC || stream.readInt() != FILE_VERSION) {
+                secretUnavailable = true;
                 FileLog.e("NovaGram device lock: unreadable binding file");
                 return null;
             }
             int ivLength = stream.readInt();
             if (ivLength != GCM_IV_BYTES) {
+                secretUnavailable = true;
                 return null;
             }
             byte[] iv = new byte[ivLength];
             stream.readFully(iv);
             int sealedLength = stream.readInt();
             if (sealedLength <= 16 || sealedLength > MAX_SEALED_BYTES) {
+                secretUnavailable = true;
                 return null;
             }
             byte[] sealed = new byte[sealedLength];
@@ -644,11 +654,29 @@ public final class NovaDeviceLock {
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
             byte[] secret = cipher.doFinal(sealed);
             if (secret.length != SECRET_BYTES) {
+                // Opened, and what came out is not a secret of ours. Nothing
+                // here is going to make it one, so this is an answer.
                 NovaSecretWiper.wipe(secret);
                 return null;
             }
             return secret;
+        } catch (AEADBadTagException e) {
+            // The only failure that actually means "sealed somewhere else":
+            // the file is well formed, the key on this device was applied to
+            // it, and the tag did not authenticate. This is the one that may
+            // reach the owner as a foreign directory.
+            FileLog.e("NovaGram device lock: the sealed binding does not open with this device's key");
+            return null;
         } catch (IOException | GeneralSecurityException | RuntimeException e) {
+            // Everything else is the question failing, not being answered.
+            // `cipher.init` and `doFinal` on a Keystore key are IPC to
+            // keystore2, and it throws `ProviderException` wrapping a
+            // `KeyStoreException` when it is busy - notably right after the
+            // system unfreezes a cached process. Falling through here without
+            // the flag latched a **certain** foreign verdict on a phone having
+            // a bad minute, and the screen that verdict opens offers one
+            // button, which wipes.
+            secretUnavailable = true;
             FileLog.e(e);
             return null;
         }
