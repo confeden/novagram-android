@@ -8,6 +8,9 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.pm.ShortcutInfoCompat;
+import androidx.core.content.pm.ShortcutManagerCompat;
+import androidx.core.graphics.drawable.IconCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -17,6 +20,7 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.browser.Browser;
+import org.telegram.messenger.novagram.NovaIconDesign;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaContactSync;
@@ -44,7 +48,9 @@ import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.NovaIconPicker;
 import org.telegram.ui.Components.RecyclerListView;
+import org.telegram.ui.Components.BulletinFactory;
 
 import java.util.ArrayList;
 
@@ -56,12 +62,18 @@ import java.util.ArrayList;
 public class NovaGramSettingsActivity extends BaseFragment {
 
     private RecyclerListView listView;
+    /**
+     * The picker holds the draft while it is being walked, so the row that
+     * applies it has to reach the same instance the list is showing.
+     */
+    private NovaIconPicker iconPicker;
     private ListAdapter adapter;
 
     private static final int VIEW_TYPE_HEADER = 0;
     private static final int VIEW_TYPE_TEXT = 1;
     private static final int VIEW_TYPE_CHECK = 2;
     private static final int VIEW_TYPE_SHADOW = 3;
+    private static final int VIEW_TYPE_ICON = 4;
 
     private static final int ID_APP_PIN = 1;
     private static final int ID_EMERGENCY_PIN = 2;
@@ -90,6 +102,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_AUTOTRANSLATE = 25;
     private static final int ID_CONTACT_SYNC = 26;
     private static final int ID_CRASH_STICKERS = 27;
+    private static final int ID_ICON_PICKER = 28;
+    private static final int ID_ICON_APPLY = 29;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -236,6 +250,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean enabled = !NovaOutgoingMetadata.isEnabled();
             NovaOutgoingMetadata.setEnabled(enabled);
             ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_ICON_APPLY) {
+            applyIconDesign();
         } else if (item.id == ID_CRASH_STICKERS) {
             boolean enabled = !NovaCrashStickers.isEnabled();
             NovaCrashStickers.setEnabled(getParentActivity(), enabled);
@@ -446,6 +462,51 @@ public class NovaGramSettingsActivity extends BaseFragment {
         }
     }
 
+    /**
+     * Stores the drawn mark and offers to put it on the home screen.
+     *
+     * <p>Android does not let an application replace its own launcher icon -
+     * that one is a resource inside the signed package - so what is offered is
+     * a pinned shortcut, which the system adds beside it and only with the
+     * user's consent. Said plainly in the row's own explanation rather than
+     * dressed up as "the icon changed".</p>
+     */
+    private void applyIconDesign() {
+        if (iconPicker == null || getParentActivity() == null) {
+            return;
+        }
+        final NovaIconDesign.Design design = iconPicker.getDraft();
+        NovaIconDesign.setCurrent(design);
+        try {
+            if (!ShortcutManagerCompat.isRequestPinShortcutSupported(getParentActivity())) {
+                BulletinFactory.of(this).createErrorBulletin(
+                        LocaleController.getString(R.string.NovaIconShortcutFailed)).show();
+                return;
+            }
+            Intent intent = new Intent(getParentActivity(), LaunchActivity.class);
+            intent.setAction(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            ShortcutInfoCompat shortcut = new ShortcutInfoCompat.Builder(
+                            getParentActivity(),
+                            "novagram_icon_" + design.style + "_" + design.texture + "_" + design.accent)
+                    .setShortLabel(LocaleController.getString(R.string.NovaIconShortcutLabel))
+                    .setLongLabel(LocaleController.getString(R.string.NovaIconShortcutLabel))
+                    .setIcon(IconCompat.createWithBitmap(
+                            NovaIconDesign.render(design, AndroidUtilities.dp(108), false)))
+                    .setIntent(intent)
+                    .build();
+            ShortcutManagerCompat.requestPinShortcut(getParentActivity(), shortcut, null);
+            BulletinFactory.of(this).createSimpleBulletin(
+                    R.raw.chats_infotip,
+                    LocaleController.getString(R.string.NovaIconHeader),
+                    LocaleController.getString(R.string.NovaIconShortcutAsked)).show();
+        } catch (Throwable e) {
+            FileLog.e(e);
+            BulletinFactory.of(this).createErrorBulletin(
+                    LocaleController.getString(R.string.NovaIconShortcutFailed)).show();
+        }
+    }
+
     private void buildItems() {
         items.clear();
         boolean appPinSet = isAppPinSet();
@@ -520,6 +581,11 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 LocaleController.getString(R.string.NovaDohTitle),
                 String.valueOf(enabledDohCount())));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaDohInfo)));
+
+        items.add(Item.header(LocaleController.getString(R.string.NovaIconHeader)));
+        items.add(Item.icon());
+        items.add(Item.text(ID_ICON_APPLY, LocaleController.getString(R.string.NovaIconApply)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaIconInfo)));
 
         items.add(Item.header(LocaleController.getString(R.string.NovaStickersHeader)));
         items.add(Item.check(ID_CRASH_STICKERS, LocaleController.getString(R.string.NovaCrashStickerTitle)));
@@ -660,6 +726,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
         static Item shadow(CharSequence text) {
             return new Item(VIEW_TYPE_SHADOW, 0, text, "");
         }
+
+        static Item icon() {
+            return new Item(VIEW_TYPE_ICON, ID_ICON_PICKER, "", "");
+        }
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
@@ -673,6 +743,18 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 view = new TextCheckCell(getContext());
             } else if (viewType == VIEW_TYPE_SHADOW) {
                 view = new TextInfoPrivacyCell(getContext());
+            } else if (viewType == VIEW_TYPE_ICON) {
+                // One instance for the life of the screen: it carries the draft
+                // the arrows walk, and a recycled second one would carry a
+                // different draft than the row below it applies.
+                if (iconPicker == null) {
+                    iconPicker = new NovaIconPicker(getContext(), null, null);
+                }
+                if (iconPicker.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) iconPicker.getParent()).removeView(iconPicker);
+                }
+                view = iconPicker;
+                view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
             } else {
                 view = new TextSettingsCell(getContext());
             }

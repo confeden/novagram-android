@@ -57,6 +57,41 @@
     <string name="NovaDropIncomingStop">Не удалять будущие сообщения</string>
     <string name="NovaDropIncomingTurnOn">Начать удалять</string>
     <string name="NovaDropIncomingAbout">Всё, что собеседник пришлёт дальше, удаляется на этом устройстве до того, как будет сохранено, показано или объявлено: ни уведомления, ни счётчика непрочитанного, ни возможности прочитать это позже. У собеседника не удаляется ничего — его переписка остаётся как есть, а сообщения так и висят непрочитанными. Выключается само, как только вы что-нибудь отправите в этот чат — сообщение или реакцию.</string>
+    <string name="NovaIconHeader">Значок</string>
+    <string name="NovaIconStyle">Стиль</string>
+    <string name="NovaIconTexture">Текстура</string>
+    <string name="NovaIconAccent">Оттенок</string>
+    <string name="NovaIconApply">Вынести этот значок на рабочий стол</string>
+    <string name="NovaIconInfo">Значок рисуется, а не берётся из файла, поэтому сочетаний 3840. Android не позволяет приложению заменить собственный значок в лаунчере — тот лежит внутри подписанного пакета, — поэтому выбранный знак предлагается как ярлык, который система добавляет рядом и только с вашего согласия. Внутри приложения новый знак применяется сразу.</string>
+    <string name="NovaIconShortcutLabel">NovaGram</string>
+    <string name="NovaIconShortcutAsked">Система запрошена о добавлении ярлыка. Если ничего не появилось — ваш лаунчер не принимает закреплённые ярлыки.</string>
+    <string name="NovaIconShortcutFailed">Этот лаунчер не принимает закреплённые ярлыки, поэтому значок останется только внутри приложения.</string>
+    <string-array name="NovaIconStyles">
+        <item>Оригинал</item>
+        <item>Неон</item>
+        <item>Ретро</item>
+        <item>Стекло</item>
+        <item>Вырез</item>
+        <item>Контур</item>
+        <item>Сияние</item>
+        <item>Металл</item>
+        <item>Терминал</item>
+        <item>Оригами</item>
+    </string-array>
+    <string-array name="NovaIconTextures">
+        <item>Без текстуры</item>
+        <item>Пузыри</item>
+        <item>Ткань</item>
+        <item>Зерно</item>
+        <item>Карбон</item>
+        <item>Полосы</item>
+        <item>Растр</item>
+        <item>Сетка</item>
+        <item>Волны</item>
+        <item>Соты</item>
+        <item>Плата</item>
+        <item>Чешуя</item>
+    </string-array>
     <string name="NovaStickersHeader">Стикеры</string>
     <string name="NovaCrashStickerTitle">Защита от краш-стикеров</string>
     <string name="NovaCrashStickerInfo">Стикер, который не рисуется, а роняет клиент, не доходит до декодера: вместо него остаётся подпись «Краш-стикер (обезврежен)». Проверяются размер, разрешение, длительность и устройство самого файла — настоящий стикер до этих ограничений не дотягивает.</string>

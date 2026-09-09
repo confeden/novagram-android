@@ -57,6 +57,41 @@
     <string name="NovaDropIncomingStop">Stop deleting future messages</string>
     <string name="NovaDropIncomingTurnOn">Start deleting</string>
     <string name="NovaDropIncomingAbout">Everything this person sends from now on is deleted on this device before it is stored, shown or announced — no notification, no unread badge, no way to read it later. Nothing is deleted for them: their chat and their messages stay as they are, and they keep seeing the messages as unread. Switches itself off as soon as you send anything here — a message or a reaction.</string>
+    <string name="NovaIconHeader">Icon</string>
+    <string name="NovaIconStyle">Style</string>
+    <string name="NovaIconTexture">Texture</string>
+    <string name="NovaIconAccent">Accent</string>
+    <string name="NovaIconApply">Put this icon on the home screen</string>
+    <string name="NovaIconInfo">The icon is drawn rather than taken from a file, which is why there are 3840 combinations. Android does not let an application replace its own launcher icon — that one lives inside the signed package — so the chosen mark is offered as a shortcut the system adds beside it, with your consent. Inside the application the new mark is used at once.</string>
+    <string name="NovaIconShortcutLabel">NovaGram</string>
+    <string name="NovaIconShortcutAsked">The system was asked to add the shortcut. If nothing appeared, your launcher does not accept pinned shortcuts.</string>
+    <string name="NovaIconShortcutFailed">This launcher does not accept pinned shortcuts, so the icon can only be used inside the application.</string>
+    <string-array name="NovaIconStyles">
+        <item>Original</item>
+        <item>Neon</item>
+        <item>Retro</item>
+        <item>Glass</item>
+        <item>Cutout</item>
+        <item>Outline</item>
+        <item>Aurora</item>
+        <item>Metal</item>
+        <item>Terminal</item>
+        <item>Origami</item>
+    </string-array>
+    <string-array name="NovaIconTextures">
+        <item>Plain</item>
+        <item>Bubbles</item>
+        <item>Fabric</item>
+        <item>Grain</item>
+        <item>Carbon</item>
+        <item>Stripes</item>
+        <item>Halftone</item>
+        <item>Grid</item>
+        <item>Waves</item>
+        <item>Hex</item>
+        <item>Circuit</item>
+        <item>Scales</item>
+    </string-array>
     <string name="NovaStickersHeader">Stickers</string>
     <string name="NovaCrashStickerTitle">Crash sticker guard</string>
     <string name="NovaCrashStickerInfo">A sticker built to kill the client instead of being drawn never reaches the decoder: a “Crash sticker (defused)” plate takes its place. The size, the dimensions, the length and the shape of the file itself are checked — a sticker made by Telegram’s own rules is nowhere near the limits.</string>
