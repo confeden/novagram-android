@@ -19,6 +19,8 @@ import org.telegram.SQLite.SQLiteDatabase;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -92,6 +94,19 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
     private final NovaReadStatusStore store;
 
     private NovaReadStatusStore.State state = new NovaReadStatusStore.State(0L);
+
+    /**
+     * The watermarks of {@link NovaDropIncoming}, copied out of the state so
+     * that the message threads can read them.
+     *
+     * <p>The rules themselves are touched on the main thread only, and every
+     * question asked of them is asked there. This one is not: it is asked once
+     * per arriving message, on the queue that processes updates, so a plain
+     * read of the state's map would be a read of a LinkedHashMap while the main
+     * thread writes it. Replaced whole on every change instead — the map is
+     * tiny, changes are rare, and a reader always holds a complete one.</p>
+     */
+    private volatile Map<Long, int[]> dropSnapshot = Collections.emptyMap();
     /**
      * Dialogs whose messages arrived before the answer could be given — either
      * the rules were still being decrypted, or the chat list was not loaded yet
@@ -194,6 +209,7 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         retryScheduled = false;
         sweptDialogCount = -1;
         state = new NovaReadStatusStore.State(0L);
+        dropSnapshot = Collections.emptyMap();
         loaded = false;
         loading = false;
     }
@@ -253,6 +269,7 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
                     loadedState.setRule(rule.getKey(), rule.getValue());
                 }
                 state = loadedState;
+                refreshDropSnapshot();
                 loaded = true;
                 if (writtenBeforeLoad) {
                     // scheduleSave() refuses to run before the file is read, so
@@ -334,6 +351,182 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
     }
 
     /**
+     * The spells of dropping for this dialog - triples of {@code from, till,
+     * open} - or null. Answered from the snapshot and never blocks: a caller
+     * on the message thread cannot wait for the Keystore, and while the rules
+     * are unread the honest answer is "drop nothing" - a message shown by
+     * mistake can still be dropped later, one dropped by mistake is gone.
+     */
+    public static int[] dropRanges(int account, long dialogId) {
+        if (wiped || !DialogObject.isUserDialog(dialogId)) {
+            return null;
+        }
+        try {
+            NovaReadStatus instance = getInstance(account);
+            if (!instance.loaded || !isEnabled(account)) {
+                return null;
+            }
+            return instance.dropSnapshot.get(dialogId);
+        } catch (Throwable e) {
+            FileLog.e(e);
+            return null;
+        }
+    }
+
+    /**
+     * Opens a new spell of dropping in this dialog. Only ever called from the
+     * chat it is about, and only while {@link #isRuleHidden} holds for it.
+     */
+    public static void openDropRange(int account, long dialogId, int fromMessageId) {
+        if (wiped || !DialogObject.isUserDialog(dialogId) || fromMessageId <= 0) {
+            return;
+        }
+        try {
+            NovaReadStatus instance = getInstance(account);
+            if (!instance.loaded
+                    || instance.state.getRule(dialogId)
+                            != NovaReadStatusStore.RULE_HIDDEN) {
+                return;
+            }
+            int[] ranges = instance.state.getDropRanges(dialogId);
+            if (ranges != null && ranges.length >= 3
+                    && ranges[ranges.length - 1] != 0) {
+                return; // already dropping
+            }
+            int[] grown = new int[(ranges == null ? 0 : ranges.length) + 3];
+            if (ranges != null) {
+                System.arraycopy(ranges, 0, grown, 0, ranges.length);
+            }
+            grown[grown.length - 3] = fromMessageId;
+            grown[grown.length - 2] = 0;
+            grown[grown.length - 1] = 1;
+            instance.writeDropRanges(dialogId, grown);
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
+    /**
+     * Closes the open spell at the newest id it dropped. The one door out,
+     * used by the switch itself and by {@link #reveal} alike - a range that
+     * dropped nothing is removed, one that dropped something is kept for good,
+     * because what it threw away must not come back from the server.
+     */
+    public static void closeDropRange(int account, long dialogId) {
+        if (wiped || !DialogObject.isUserDialog(dialogId)) {
+            return;
+        }
+        try {
+            getInstance(account).closeDropRangeInternal(dialogId);
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
+    private void closeDropRangeInternal(long dialogId) {
+        int[] ranges = state.getDropRanges(dialogId);
+        if (ranges == null || ranges.length < 3 || ranges[ranges.length - 1] == 0) {
+            return;
+        }
+        final int from = ranges[ranges.length - 3];
+        final int till = ranges[ranges.length - 2];
+        int[] closed;
+        if (till < from) {
+            // Nothing ever arrived while it was on, so there is nothing to
+            // remember about it.
+            closed = new int[ranges.length - 3];
+            System.arraycopy(ranges, 0, closed, 0, closed.length);
+        } else {
+            closed = ranges.clone();
+            closed[closed.length - 1] = 0;
+        }
+        writeDropRanges(dialogId, closed);
+    }
+
+    /**
+     * Moves the newest dropped id of the open spell forward. Called for every
+     * message that is thrown away, on the thread it arrived on, so the write
+     * itself is handed to the main thread and the save is debounced.
+     */
+    public static void noteDropped(int account, long dialogId, int messageId) {
+        if (wiped || messageId <= 0 || !DialogObject.isUserDialog(dialogId)) {
+            return;
+        }
+        try {
+            final NovaReadStatus instance = getInstance(account);
+            int[] known = instance.dropSnapshot.get(dialogId);
+            if (known == null
+                    || known.length < 3
+                    || known[known.length - 1] == 0
+                    || known[known.length - 2] >= messageId) {
+                return;
+            }
+            AndroidUtilities.runOnUIThread(() -> {
+                if (wiped) {
+                    return;
+                }
+                int[] ranges = instance.state.getDropRanges(dialogId);
+                if (ranges == null
+                        || ranges.length < 3
+                        || ranges[ranges.length - 1] == 0
+                        || ranges[ranges.length - 2] >= messageId) {
+                    return;
+                }
+                int[] moved = ranges.clone();
+                moved[moved.length - 2] = messageId;
+                instance.writeDropRanges(dialogId, moved);
+            });
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+    }
+
+    /** The single writer: caps the list, refreshes the snapshot, saves. */
+    private void writeDropRanges(long dialogId, int[] ranges) {
+        while (ranges.length > NovaReadStatusStore.MAX_DROP_RANGES * 3) {
+            // The two oldest merged rather than forgotten: a span that covers
+            // both drops a few messages the user did see in between, which is
+            // the safe way to be wrong here.
+            int[] merged = new int[ranges.length - 3];
+            merged[0] = Math.min(ranges[0], ranges[3]);
+            merged[1] = Math.max(ranges[1], ranges[4]);
+            merged[2] = ranges[5];
+            System.arraycopy(ranges, 6, merged, 3, ranges.length - 6);
+            ranges = merged;
+        }
+        state.setDropRanges(dialogId, ranges.length == 0 ? null : ranges);
+        refreshDropSnapshot();
+        scheduleSave();
+        notifyRulesChanged();
+    }
+
+    /**
+     * Rebuilds the snapshot the message threads read. Called after every
+     * change to the rules and after the sealed state is loaded; a dialog whose
+     * rule is no longer Hidden is left out rather than trusted, since the
+     * switch is offered inside a hidden dialog only.
+     */
+    private void refreshDropSnapshot() {
+        Map<Long, int[]> drops = state.getDropRanges();
+        if (drops.isEmpty()) {
+            dropSnapshot = Collections.emptyMap();
+            return;
+        }
+        Map<Long, int[]> snapshot = new HashMap<>(drops.size());
+        for (Map.Entry<Long, int[]> drop : drops.entrySet()) {
+            if (drop.getValue() != null
+                    && drop.getValue().length >= 3
+                    && state.getRule(drop.getKey())
+                            == NovaReadStatusStore.RULE_HIDDEN) {
+                snapshot.put(drop.getKey(), drop.getValue());
+            }
+        }
+        dropSnapshot = snapshot.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(snapshot);
+    }
+
+    /**
      * Whether {@link #isHidden} is holding this dialog back without having
      * decided it. A caller that would have talked to the server has to keep
      * what it did not send instead of dropping it: the answer can still turn
@@ -402,7 +595,18 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
             // would be sent for each of them.
             return;
         }
+        // Dropping what the other side writes is allowed only while this
+        // dialog is one the user never answered in, and answering is exactly
+        // what brings the code here - from a message, from a reaction, or from
+        // the button above the chat. So the watermark goes with the hiding,
+        // through the one door both of them are lifted by.
+        // Dropping is allowed only while this dialog is one the user never
+        // answered in, and answering is exactly what brings the code here. The
+        // open spell is closed rather than forgotten: what it dropped must not
+        // come back from the server the moment the hiding is lifted.
+        closeDropRangeInternal(dialogId);
         state.setRule(dialogId, NovaReadStatusStore.RULE_REVEALED);
+        refreshDropSnapshot();
         ensureStarted();
         scheduleSave();
         // Not releaseHeldReads: while the rule said "hidden" the reads were not
@@ -470,6 +674,7 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         MessagesController.getInstance(currentAccount).novaForgetHeldReads(dialogId);
         if (loaded && state.getRule(dialogId) != 0) {
             state.removeRule(dialogId);
+            refreshDropSnapshot();
             scheduleSave();
             notifyRulesChanged();
         }

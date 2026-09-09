@@ -37,6 +37,11 @@ public enum NovaPrivacyFeature {
     // here that is off by default: it takes a working part of Telegram off the
     // screen, and a change the user can see has to be the user's choice.
     STORIES_HIDDEN("stories_hidden", Scope.GLOBAL, false, true),
+    // A sticker set is content the sender picks and the receiver opens
+    // without being asked, so a file built to kill the decoder is a remote
+    // crash rather than a bad drawing. On by default and GLOBAL: it describes
+    // what this client is willing to decode, not what one account agreed to.
+    CRASH_STICKER_GUARD("crash_sticker_guard", Scope.GLOBAL, true, true),
     SEARCH_HISTORY_PROTECTION("search_history_protection", Scope.ACCOUNT, true, true),
     SHOW_PEER_IDS("show_peer_ids", Scope.ACCOUNT, true, true),
     ERASE_EVIDENCE("erase_evidence", Scope.ACCOUNT, true, true),

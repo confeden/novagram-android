@@ -44,6 +44,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.DispatchQueuePriority;
 import org.telegram.messenger.secretmedia.EncryptedFileInputStream;
+import org.telegram.messenger.novagram.privacy.NovaCrashStickers;
 import org.telegram.messenger.utils.BitmapsCache;
 import org.telegram.messenger.wallpaper.WallpaperGiftBitmapDrawable;
 import org.telegram.tgnet.ConnectionsManager;
@@ -941,6 +942,23 @@ public class ImageLoader {
                 if (isCancelled) {
                     return;
                 }
+            }
+
+            if (cacheImage.finalFilePath != null
+                    && NovaCrashStickers.refuse(
+                            cacheImage.imageLocation != null
+                                    ? cacheImage.imageLocation.document
+                                    : null,
+                            cacheImage.imageType == FileLoader.IMAGE_TYPE_LOTTIE,
+                            cacheImage.finalFilePath.getAbsolutePath())) {
+                // Every sticker this application draws is decoded below this
+                // line - rlottie for a .tgs, FFmpeg for a .webm, BitmapFactory
+                // for a .webp - so this is the one place a file built to kill
+                // the decoder has to be turned back. What goes out instead is
+                // an ordinary bitmap, so every screen that draws stickers
+                // shows the plate without knowing about any of this.
+                onPostExecute(new BitmapDrawable(NovaCrashStickers.placeholder()));
+                return;
             }
 
             if (cacheImage.imageLocation.photoSize instanceof TLRPC.TL_photoStrippedSize) {

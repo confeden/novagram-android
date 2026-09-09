@@ -163,6 +163,7 @@ import org.telegram.messenger.novagram.privacy.NovaAutoDeleteStore;
 import org.telegram.messenger.novagram.privacy.NovaChatMenu;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
+import org.telegram.messenger.novagram.privacy.NovaDropIncoming;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.HashtagSearchController;
@@ -461,6 +462,7 @@ public class ChatActivity extends BaseFragment implements
     private ActionBarMenuItem.Item clearHistoryItem;
     private ActionBarMenuItem.Item novaAutoDeleteItem;
     private ActionBarMenuItem.Item novaReadStatusItem;
+    private ActionBarMenuItem.Item novaDropIncomingItem;
     private ActionBarMenuItem.Item viewAsTopics;
     private ActionBarMenuItem.Item closeTopicItem;
     private ActionBarMenuItem.Item openForumItem;
@@ -1724,6 +1726,7 @@ public class ChatActivity extends BaseFragment implements
     private final static int nova_erase_evidence = 76;
     private final static int nova_read_status = 77;
     private final static int nova_proxy = 78;
+    private final static int nova_drop_incoming = 79;
 
     private final static int id_chat_compose_panel = 1000;
 
@@ -3914,6 +3917,8 @@ public class ChatActivity extends BaseFragment implements
                     updateNovaAutoDeleteItem();
                 } else if (id == nova_read_status) {
                     showNovaReadStatusDialog();
+                } else if (id == nova_drop_incoming) {
+                    showNovaDropIncomingDialog();
                 } else if (id == nova_erase_evidence) {
                     showNovaEraseEvidenceDialog();
                 } else if (id == nova_proxy) {
@@ -4566,6 +4571,12 @@ public class ChatActivity extends BaseFragment implements
                 if (currentUser != null && !UserObject.isUserSelf(currentUser)) {
                     novaReadStatusItem = headerItem.lazilyAddSubItem(nova_read_status, R.drawable.msg_markread,
                             LocaleController.getString(R.string.NovaReadStatusTitle));
+                    // Directly under it, and shown under the same condition:
+                    // dropping what the other side sends is only offered where
+                    // the receipts are already being withheld, and it means
+                    // nothing without them.
+                    novaDropIncomingItem = headerItem.lazilyAddSubItem(nova_drop_incoming, R.drawable.msg_block,
+                            LocaleController.getString(R.string.NovaDropIncomingTitle));
                 }
                 // Not inside a room. Erase evidence walks the whole chat and
                 // would destroy the user's messages in every room of the
@@ -12971,6 +12982,7 @@ public class ChatActivity extends BaseFragment implements
                             ? View.VISIBLE
                             : View.GONE);
         }
+        updateNovaDropIncomingItem();
         // The proxy shortcut is added here rather than in createView because it
         // has to be the last entry, and createView is not the last thing to add
         // one: checkLeaveChannelButton() appends "Leave channel" once the chat
@@ -13072,6 +13084,56 @@ public class ChatActivity extends BaseFragment implements
         topPanelLayout.setViewVisible(novaReadStatusPanel, true);
     }
 
+    /**
+     * The entry that turns dropping on and off. Its text says which of the two
+     * it will do, because the menu is where the user finds out whether it is
+     * on at all - there is no bar above the chat for it: a dialog that drops
+     * what the other side sends is supposed to look like a quiet one.
+     */
+    private void updateNovaDropIncomingItem() {
+        if (novaDropIncomingItem == null) {
+            return;
+        }
+        final long dialogId = getDialogId();
+        if (!NovaDropIncoming.offered(currentAccount, dialogId)) {
+            novaDropIncomingItem.setVisibility(View.GONE);
+            return;
+        }
+        final boolean active = NovaDropIncoming.active(currentAccount, dialogId);
+        novaDropIncomingItem.setVisibility(View.VISIBLE);
+        novaDropIncomingItem.setText(LocaleController.getString(active
+                ? R.string.NovaDropIncomingStop
+                : R.string.NovaDropIncomingTitle));
+        novaDropIncomingItem.setIcon(active ? R.drawable.msg_reset : R.drawable.msg_block);
+    }
+
+    private void showNovaDropIncomingDialog() {
+        if (getParentActivity() == null) {
+            return;
+        }
+        final long dialogId = getDialogId();
+        if (NovaDropIncoming.active(currentAccount, dialogId)) {
+            // Switching it off needs no question: what it dropped stays
+            // dropped either way, and only what arrives afterwards comes
+            // through. The explanation belongs to the direction that starts
+            // throwing messages away, not to the one that stops.
+            NovaDropIncoming.disable(currentAccount, dialogId);
+            updateNovaDropIncomingItem();
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.NovaDropIncomingTitle));
+        builder.setMessage(LocaleController.getString(R.string.NovaDropIncomingAbout));
+        builder.setPositiveButton(
+                LocaleController.getString(R.string.NovaDropIncomingTurnOn),
+                (dialog, which) -> {
+                    NovaDropIncoming.enable(currentAccount, dialogId);
+                    updateNovaDropIncomingItem();
+                });
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+        showDialog(builder.create());
+    }
+
     private void showNovaReadStatusDialog() {
         if (getParentActivity() == null) {
             return;
@@ -13088,6 +13150,9 @@ public class ChatActivity extends BaseFragment implements
                     if (novaReadStatusItem != null) {
                         novaReadStatusItem.setVisibility(View.GONE);
                     }
+                    // reveal() drops the watermark with the rule, so the entry
+                    // that offered to drop messages goes with them.
+                    updateNovaDropIncomingItem();
                     updateNovaReadStatusPanel();
                 });
         builder.setNegativeButton(LocaleController.getString(R.string.Close), null);
@@ -24034,6 +24099,7 @@ public class ChatActivity extends BaseFragment implements
                                 ? View.VISIBLE
                                 : View.GONE);
             }
+            updateNovaDropIncomingItem();
         } else if (id == NotificationCenter.messagesReadContent) {
             long did = (Long) args[0];
             if (did != dialog_id && (ChatObject.isChannel(currentChat) || did != 0)) {

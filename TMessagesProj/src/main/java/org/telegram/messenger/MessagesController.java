@@ -70,6 +70,7 @@ import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLMethod;
 import org.telegram.tgnet.TLObject;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
+import org.telegram.messenger.novagram.privacy.NovaDropIncoming;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.Vector;
@@ -12000,6 +12001,40 @@ public class MessagesController extends BaseController implements NotificationCe
         Timer.Task t1 = Timer.start(loaderLogger, "processLoadedMessages");
 
         long startProcessTime = SystemClock.elapsedRealtime();
+        // NovaGram: a dialog that drops what the other side sends must not get
+        // it back from the server the next time its history is opened. The
+        // intake hooks keep it out of the storage; this keeps it out of what a
+        // fetch brings, which is the same message travelling the other road.
+        //
+        // What the cache hands back is also swept here, and swept for good:
+        // the rules live in a sealed store that is read asynchronously, so a
+        // message that arrived in the seconds before that read finished was
+        // stored like any other. Taking those ids through the local deletion
+        // is what makes "it is not kept anywhere" true after a restart as
+        // well - nothing is sent to the server, this is the same path the
+        // client walks when the server says a message is gone.
+        ArrayList<Integer> novaDropped = null;
+        for (int a = 0; a < messagesRes.messages.size(); a++) {
+            final TLRPC.Message novaMessage = messagesRes.messages.get(a);
+            if (NovaDropIncoming.drops(currentAccount, dialogId, novaMessage)) {
+                if (novaDropped == null) {
+                    novaDropped = new ArrayList<>();
+                }
+                novaDropped.add(novaMessage.id);
+                messagesRes.messages.remove(a);
+                a--;
+            }
+        }
+        if (novaDropped != null) {
+            final ArrayList<Integer> novaDroppedFinal = novaDropped;
+            getMessagesStorage().markMessagesAsDeleted(
+                    dialogId,
+                    novaDroppedFinal,
+                    true,
+                    true,
+                    0,
+                    0);
+        }
         boolean createDialog = false;
         if (messagesRes instanceof TLRPC.TL_messages_channelMessages) {
             long channelId = -dialogId;
@@ -14081,6 +14116,7 @@ public class MessagesController extends BaseController implements NotificationCe
                     newDialog.unread_mentions_count = dialog.unread_mentions_count;
                     newDialog.unread_reactions_count = dialog.unread_reactions_count;
                     newDialog.unread_poll_votes_count = dialog.unread_poll_votes_count;
+                    NovaDropIncoming.silence(currentAccount, newDialog);
                     newDialog.read_inbox_max_id = dialog.read_inbox_max_id;
                     newDialog.read_outbox_max_id = dialog.read_outbox_max_id;
                     newDialog.pinned = dialog.pinned;
@@ -14273,6 +14309,7 @@ public class MessagesController extends BaseController implements NotificationCe
                             FileLog.d("processDialogsUpdate dialog not null");
                         }
                         currentDialog.unread_count = value.unread_count;
+                        NovaDropIncoming.silence(currentAccount, currentDialog);
                         if (currentDialog.unread_mentions_count != value.unread_mentions_count) {
                             currentDialog.unread_mentions_count = value.unread_mentions_count;
                             if (createdDialogMainThreadIds.contains(currentDialog.id)) {
@@ -17472,6 +17509,15 @@ public class MessagesController extends BaseController implements NotificationCe
                                         continue;
                                     }
                                     MessageObject.getDialogId(message);
+                                    if (NovaDropIncoming.drops(currentAccount, message.dialog_id, message)) {
+                                        // NovaGram: what arrived while the
+                                        // client was away. Taken out of the
+                                        // list itself, because the same list
+                                        // is handed to putMessages below.
+                                        res.new_messages.remove(a);
+                                        a--;
+                                        continue;
+                                    }
 
                                     if (!DialogObject.isEncryptedDialog(message.dialog_id)) {
                                         if (message.action instanceof TLRPC.TL_messageActionChatDeleteUser) {
@@ -19102,6 +19148,16 @@ public class MessagesController extends BaseController implements NotificationCe
                         scheduledMessages.put(message.dialog_id, arr);
                     }
                     arr.add(obj);
+                } else if (NovaDropIncoming.drops(currentAccount, message.dialog_id, message)) {
+                    // NovaGram: this dialog drops everything the other side
+                    // sends. The branch below is the one that would store the
+                    // message, put it on the screen and hand it to the
+                    // notification controller - all three come from here, so
+                    // not entering it is the whole feature. Nothing is sent to
+                    // the server about it either: dropping is local, and the
+                    // read receipt this dialog would owe is withheld by the
+                    // read-status rule that had to be on for the switch to be
+                    // offered at all.
                 } else {
                     if (messagesArr == null) {
                         messagesArr = new ArrayList<>();

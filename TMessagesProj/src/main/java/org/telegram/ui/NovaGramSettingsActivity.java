@@ -20,6 +20,7 @@ import org.telegram.messenger.browser.Browser;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaAutoDelete;
 import org.telegram.messenger.novagram.privacy.NovaContactSync;
+import org.telegram.messenger.novagram.privacy.NovaCrashStickers;
 import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaFileNames;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
@@ -88,6 +89,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_DEVICE_BINDING = 24;
     private static final int ID_AUTOTRANSLATE = 25;
     private static final int ID_CONTACT_SYNC = 26;
+    private static final int ID_CRASH_STICKERS = 27;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -233,6 +235,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
         } else if (item.id == ID_METADATA) {
             boolean enabled = !NovaOutgoingMetadata.isEnabled();
             NovaOutgoingMetadata.setEnabled(enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_CRASH_STICKERS) {
+            boolean enabled = !NovaCrashStickers.isEnabled();
+            NovaCrashStickers.setEnabled(getParentActivity(), enabled);
             ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_HIDE_CONTENT) {
             boolean enabled = !NovaNotificationContent.isEnabled(getContext());
@@ -515,6 +521,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 String.valueOf(enabledDohCount())));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaDohInfo)));
 
+        items.add(Item.header(LocaleController.getString(R.string.NovaStickersHeader)));
+        items.add(Item.check(ID_CRASH_STICKERS, LocaleController.getString(R.string.NovaCrashStickerTitle)));
+        items.add(Item.shadow(LocaleController.getString(R.string.NovaCrashStickerInfo)));
+
         items.add(Item.header(LocaleController.getString(R.string.NovaFilesHeader)));
         items.add(Item.check(ID_FILE_NAMES, LocaleController.getString(R.string.NovaFileNamesTitle)));
         items.add(Item.shadow(LocaleController.getString(R.string.NovaFileNamesInfo)));
@@ -720,6 +730,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaFileNames.isEnabled();
                 } else if (item.id == ID_METADATA) {
                     checked = NovaOutgoingMetadata.isEnabled();
+                } else if (item.id == ID_CRASH_STICKERS) {
+                    checked = NovaCrashStickers.isEnabled();
                 } else if (item.id == ID_HIDE_CONTENT) {
                     checked = NovaNotificationContent.isEnabled(getContext());
                 } else if (item.id == ID_NIGHT_SILENT) {

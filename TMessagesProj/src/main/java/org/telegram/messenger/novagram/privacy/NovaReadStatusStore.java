@@ -56,12 +56,25 @@ public final class NovaReadStatusStore {
      */
     public static final int MAX_RULES = 16384;
 
+    /**
+     * Spells of dropping remembered per dialog. Four is already generous — the
+     * switch goes off by itself as soon as the user answers — and when there
+     * are more the two oldest are merged into one span rather than forgotten,
+     * because forgetting a range hands back what was thrown away.
+     */
+    public static final int MAX_DROP_RANGES = 4;
+
     private static final String PROVIDER = "AndroidKeyStore";
     private static final Object PROCESS_LOCK = new Object();
     private static final int OUTER_MAGIC = 0x4e565253; // NVRS
     private static final int INNER_MAGIC = 0x4e565231; // NVR1
-    /** Version 2 added the baseline date; version 1 blobs are read as "no baseline". */
-    private static final int STORAGE_VERSION = 2;
+    /**
+     * Version 2 added the baseline date; version 3 the per-dialog watermark of
+     * "drop what arrives from here on". Version 1 blobs are read as "no
+     * baseline", version 2 blobs as "no dialog drops anything" - both are the
+     * state those builds actually meant.
+     */
+    private static final int STORAGE_VERSION = 3;
     private static final int MIN_STORAGE_VERSION = 1;
     private static final int GCM_IV_BYTES = 12;
     private static final int MAX_STATE_BYTES = 256 * 1024;
@@ -240,6 +253,24 @@ public final class NovaReadStatusStore {
                 output.writeInt(rule.getValue());
                 written++;
             }
+            Map<Long, int[]> drops = state.getDropRanges();
+            int dropCount = Math.min(drops.size(), MAX_RULES);
+            output.writeInt(dropCount);
+            written = 0;
+            for (Map.Entry<Long, int[]> drop : drops.entrySet()) {
+                if (written >= dropCount) {
+                    break;
+                }
+                int[] ranges = drop.getValue();
+                output.writeLong(drop.getKey());
+                output.writeInt(ranges.length / 3);
+                for (int i = 0; i + 2 < ranges.length; i += 3) {
+                    output.writeInt(ranges[i]);
+                    output.writeInt(ranges[i + 1]);
+                    output.writeInt(ranges[i + 2]);
+                }
+                written++;
+            }
         }
         return bytes.toByteArray();
     }
@@ -269,6 +300,32 @@ public final class NovaReadStatusStore {
                     throw new CorruptStateException("Invalid rule");
                 }
                 state.rules.put(dialogId, rule);
+            }
+            if (version >= 3) {
+                int dropCount = input.readInt();
+                if (dropCount < 0 || dropCount > MAX_RULES) {
+                    throw new CorruptStateException("Invalid drop count");
+                }
+                for (int i = 0; i < dropCount; i++) {
+                    long dialogId = input.readLong();
+                    int rangeCount = input.readInt();
+                    if (rangeCount <= 0 || rangeCount > MAX_DROP_RANGES) {
+                        throw new CorruptStateException("Invalid drop range count");
+                    }
+                    int[] ranges = new int[rangeCount * 3];
+                    for (int j = 0; j < rangeCount; j++) {
+                        int from = input.readInt();
+                        int till = input.readInt();
+                        int open = input.readInt();
+                        if (from <= 0 || till < 0) {
+                            throw new CorruptStateException("Invalid drop range");
+                        }
+                        ranges[j * 3] = from;
+                        ranges[j * 3 + 1] = till;
+                        ranges[j * 3 + 2] = open != 0 ? 1 : 0;
+                    }
+                    state.dropRanges.put(dialogId, ranges);
+                }
             }
             if (input.available() != 0) {
                 throw new CorruptStateException("Trailing rules data");
@@ -382,6 +439,19 @@ public final class NovaReadStatusStore {
     /** In-memory image of the sealed rules, owned by a single engine. */
     public static final class State {
         private final LinkedHashMap<Long, Integer> rules = new LinkedHashMap<>();
+        /**
+         * The spells of dropping everything the other side sends, per dialog,
+         * flattened into triples of {@code from, till, open}. Lives beside the
+         * rules and not in a preference of its own: it is the same kind of
+         * secret — a list of the people being ignored — and I1 says such a list
+         * belongs in the sealed container, never in SharedPreferences.
+         *
+         * <p>A closed range is kept, and that is the whole point: an answer in
+         * the dialog switches the dropping off, and without the range
+         * everything it dropped would come back from the server the next time
+         * the history is opened.</p>
+         */
+        private final LinkedHashMap<Long, int[]> dropRanges = new LinkedHashMap<>();
         private long ownerId;
         private int baselineDate;
         private boolean unavailable;
@@ -445,6 +515,25 @@ public final class NovaReadStatusStore {
          */
         public void removeRule(long dialogId) {
             rules.remove(dialogId);
+            dropRanges.remove(dialogId);
+        }
+
+        public Map<Long, int[]> getDropRanges() {
+            return dropRanges;
+        }
+
+        /** The triples of this dialog, or null when it drops nothing. */
+        public int[] getDropRanges(long dialogId) {
+            return dropRanges.get(dialogId);
+        }
+
+        public void setDropRanges(long dialogId, int[] ranges) {
+            if (ranges == null || ranges.length == 0) {
+                dropRanges.remove(dialogId);
+            } else if (dropRanges.containsKey(dialogId)
+                    || dropRanges.size() < MAX_RULES) {
+                dropRanges.put(dialogId, ranges);
+            }
         }
     }
 
