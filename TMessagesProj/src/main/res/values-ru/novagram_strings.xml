@@ -61,6 +61,7 @@
 Уничтожено: %2$d · заменено на точку: %3$d · пропущено: %4$d</string>
     <string name="NovaEraseProgressLeft">Осталось в очереди: %1$d. Окно закроется само, когда очередь дойдёт до конца, — не закрывайте его, чтобы видеть ход.</string>
     <string name="NovaEraseProgressDone">Готово. Окно закроется через несколько секунд.</string>
+    <string name="NovaPeerIdNoKey">У этого клиента нет ключа доступа к этому номеру. Telegram не позволяет открыть собеседника по одному номеру: его нужно встретить в чате, по @имени, по номеру телефона или по ссылке. Номер сам по себе не говорит даже, человек это, группа или канал.</string>
     <string name="NovaAboutRow">Описание функции:</string>
     <string name="NovaIconHeader">Значок</string>
     <string name="NovaIconStyle">Стиль</string>

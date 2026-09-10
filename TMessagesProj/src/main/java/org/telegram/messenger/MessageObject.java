@@ -7919,7 +7919,13 @@ public class MessageObject {
     }
 
     private boolean addEntitiesToText(CharSequence text, boolean useManualParse) {
-        return addEntitiesToText(text, false, useManualParse);
+        boolean result = addEntitiesToText(text, false, useManualParse);
+        // NovaGram: the door every message text passes on its way to the
+        // screen, and so the only place a number can be turned into a link to
+        // the peer it names. Nothing is linked unless this client could
+        // actually open it - see NovaPeerId.
+        org.telegram.messenger.novagram.NovaPeerId.linkify(text, currentAccount);
+        return result;
     }
 
     public boolean addEntitiesToText(CharSequence text, boolean photoViewer, boolean useManualParse) {

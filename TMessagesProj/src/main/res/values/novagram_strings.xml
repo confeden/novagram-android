@@ -61,6 +61,7 @@
 Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
     <string name="NovaEraseProgressLeft">Left in the queue: %1$d. This window closes itself once the queue is through — leave it up to watch.</string>
     <string name="NovaEraseProgressDone">Done. This window closes in a few seconds.</string>
+    <string name="NovaPeerIdNoKey">This client has no access key for that number. Telegram does not allow opening a peer by a bare number: it has to be met in a chat, by @name, by phone number or by link. The number alone does not even say whether it is a person, a group or a channel.</string>
     <string name="NovaAboutRow">What this does:</string>
     <string name="NovaIconHeader">Icon</string>
     <string name="NovaIconStyle">Style</string>

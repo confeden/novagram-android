@@ -165,6 +165,7 @@ import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
 import org.telegram.messenger.novagram.privacy.NovaDropIncoming;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.NovaPeerId;
 import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.HashtagSearchController;
 import org.telegram.messenger.ImageLoader;
@@ -36883,6 +36884,10 @@ public class ChatActivity extends BaseFragment implements
                 }
                 didLongPressLink(cell, messageObject, url, str);
             }
+        } else if (str.startsWith(NovaPeerId.LINK_PREFIX)) {
+            // NovaGram: a number printed in a message, and a client that knows
+            // the peer behind it.
+            NovaPeerId.open(ChatActivity.this, str.substring(NovaPeerId.LINK_PREFIX.length()));
         } else {
             logSponsoredClicked(messageObject, false, false);
             String username = Browser.extractUsername(str);
