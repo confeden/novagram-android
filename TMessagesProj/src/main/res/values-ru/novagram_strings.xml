@@ -57,6 +57,11 @@
     <string name="NovaDropIncomingStop">Не удалять будущие сообщения</string>
     <string name="NovaDropIncomingTurnOn">Начать удалять</string>
     <string name="NovaDropIncomingAbout">Всё, что собеседник пришлёт дальше, удаляется на этом устройстве до того, как будет сохранено, показано или объявлено: ни уведомления, ни счётчика непрочитанного, ни возможности прочитать это позже. У собеседника не удаляется ничего — его переписка остаётся как есть, а сообщения так и висят непрочитанными. Выключается само, как только вы что-нибудь отправите в этот чат — сообщение или реакцию.</string>
+    <string name="NovaEraseProgress">Найдено ваших сообщений: %1$d
+Уничтожено: %2$d · заменено на точку: %3$d · пропущено: %4$d</string>
+    <string name="NovaEraseProgressLeft">Осталось в очереди: %1$d. Окно закроется само, когда очередь дойдёт до конца, — не закрывайте его, чтобы видеть ход.</string>
+    <string name="NovaEraseProgressDone">Готово. Окно закроется через несколько секунд.</string>
+    <string name="NovaAboutRow">Описание функции:</string>
     <string name="NovaIconHeader">Значок</string>
     <string name="NovaIconStyle">Стиль</string>
     <string name="NovaIconTexture">Текстура</string>

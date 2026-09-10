@@ -173,6 +173,13 @@ public final class NovaChatMenu {
                         R.string.NovaEraseEvidencePartial,
                         queued);
             } else if (queued > 0) {
+                // The queue starts working the moment it is handed the list,
+                // and the window is what makes that visible while it does.
+                if (fragment instanceof org.telegram.ui.ChatActivity) {
+                    ((org.telegram.ui.ChatActivity) fragment)
+                            .showNovaEraseProgress(dialogId, queued);
+                    return;
+                }
                 text = LocaleController.formatString(
                         "NovaEraseEvidenceQueued",
                         R.string.NovaEraseEvidenceQueued,

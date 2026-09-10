@@ -54,6 +54,24 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
     private static final long RELOAD_DELAY_MS = 30L * 1000L;
     /** At most five operations per tick: the only throttle protecting from flood waits. */
     private static final int PER_TICK = 5;
+
+    /**
+     * One request removes up to a hundred messages, and Erase evidence hands
+     * over hundreds at a time. Sent one by one, at five per tick and five
+     * seconds between ticks, "erase everything" over a long correspondence
+     * would have run for the better part of an hour - most of it waiting.
+     * Batched it is one request per hundred, which is what the API is for.
+     *
+     * <p>The replacement step is not batched and cannot be: editing is one
+     * message per request. It also does not apply to most of what Erase
+     * evidence finds - past the server's edit window, which is 48 hours for
+     * an ordinary message, the dot can no longer be written and the entry
+     * goes straight to the deletion.</p>
+     */
+    private static final int DELETE_BATCH = 100;
+
+    /** Two dialogs per tick: the answer still has to be applied on the screen. */
+    private static final int BATCH_DIALOGS = 2;
     /** The replacement has to reach the other side before the message goes. */
     private static final int REPLACE_TO_DELETE_DELAY = 60;
     private static final String REPLACEMENT = ".";
@@ -735,12 +753,32 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             return;
         }
         ArrayList<NovaAutoDeleteStore.Entry> due = new ArrayList<>();
+        java.util.LinkedHashMap<Long, ArrayList<NovaAutoDeleteStore.Entry>> batches =
+                new java.util.LinkedHashMap<>();
         List<NovaAutoDeleteStore.Entry> queue = state.getQueue();
-        for (int i = 0, count = queue.size(); i < count && due.size() < PER_TICK; i++) {
+        for (int i = 0, count = queue.size(); i < count; i++) {
             NovaAutoDeleteStore.Entry entry = queue.get(i);
-            if (entry.dueAt <= at && !busy.contains(entry)) {
+            if (entry.dueAt > at || busy.contains(entry)) {
+                continue;
+            }
+            if (readyToDelete(entry)) {
+                ArrayList<NovaAutoDeleteStore.Entry> bucket = batches.get(entry.dialogId);
+                if (bucket != null) {
+                    if (bucket.size() < DELETE_BATCH) {
+                        bucket.add(entry);
+                    }
+                } else if (batches.size() < BATCH_DIALOGS) {
+                    bucket = new ArrayList<>();
+                    bucket.add(entry);
+                    batches.put(entry.dialogId, bucket);
+                }
+            } else if (due.size() < PER_TICK) {
                 due.add(entry);
             }
+        }
+        for (java.util.Map.Entry<Long, ArrayList<NovaAutoDeleteStore.Entry>> batch
+                : batches.entrySet()) {
+            eraseBatch(batch.getKey(), batch.getValue());
         }
         for (int i = 0, count = due.size(); i < count; i++) {
             process(due.get(i));
@@ -892,6 +930,73 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         schedule();
     }
 
+    /**
+     * Whether this entry's next step is the deletion itself, which is the part
+     * that can travel with a hundred others in one request. Everything the
+     * replacement step still has to look at - and everything the rules may yet
+     * spare - is left to {@link #process} one at a time.
+     */
+    private boolean readyToDelete(NovaAutoDeleteStore.Entry entry) {
+        if (entry.messageId <= 0 || isEphemeralId(entry.messageId)) {
+            return false;
+        }
+        final boolean erasing = (entry.flags & NovaAutoDeleteStore.FLAG_ERASE) != 0;
+        if (!erasing
+                && entry.stage == NovaAutoDeleteStore.STAGE_REPLACE
+                && !appliesTo(entry.dialogId)) {
+            // The rules are read again in process(), which may drop it.
+            return false;
+        }
+        if (DialogObject.isEncryptedDialog(entry.dialogId) || !peerLoaded(entry.dialogId)) {
+            // Loading the peer is an asynchronous step of its own.
+            return false;
+        }
+        return entry.stage == NovaAutoDeleteStore.STAGE_DELETE
+                || !entry.isEditable()
+                || !canStillEdit(entry);
+    }
+
+    private boolean peerLoaded(long dialogId) {
+        MessagesController controller = MessagesController.getInstance(currentAccount);
+        return dialogId < 0
+                ? controller.getChat(-dialogId) != null
+                : controller.getUser(dialogId) != null;
+    }
+
+    /** One request for up to a hundred messages of one dialog. */
+    private void eraseBatch(long dialogId, ArrayList<NovaAutoDeleteStore.Entry> entries) {
+        if (entries.isEmpty()) {
+            return;
+        }
+        ArrayList<Integer> ids = new ArrayList<>(entries.size());
+        for (int i = 0, count = entries.size(); i < count; i++) {
+            ids.add(entries.get(i).messageId);
+        }
+        Outcome outcome = Outcome.DELETED;
+        try {
+            MessagesController.getInstance(currentAccount).deleteMessages(
+                    ids,
+                    null,
+                    null,
+                    dialogId,
+                    0,
+                    true,
+                    0
+            );
+        } catch (Throwable e) {
+            FileLog.e(e);
+            outcome = Outcome.SKIPPED;
+        }
+        for (int i = 0, count = entries.size(); i < count; i++) {
+            NovaAutoDeleteStore.Entry entry = entries.get(i);
+            count(entry, outcome);
+            // Dropped immediately, like the single-message path: deleteMessages
+            // persists its own pending task, so a failed request is retried by
+            // the client and not by this queue.
+            drop(entry);
+        }
+    }
+
     private void erase(NovaAutoDeleteStore.Entry entry) {
         ArrayList<Integer> ids = new ArrayList<>(1);
         ids.add(entry.messageId);
@@ -915,10 +1020,52 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         drop(entry);
     }
 
+    /**
+     * What Erase evidence has managed so far in one dialog, for the window
+     * that watches it: queued, replaced, deleted, skipped, still in the queue,
+     * and whether it is through. The queue itself reports once, at the end.
+     */
+    public static int[] eraseProgress(int account, long dialogId) {
+        int[] result = new int[6];
+        try {
+            NovaAutoDelete instance = getInstance(account);
+            NovaAutoDeleteStore.Report report = instance.state.findReport(dialogId);
+            if (report != null) {
+                result[0] = report.queued;
+                result[1] = report.replaced;
+                result[2] = report.deleted;
+                result[3] = report.skipped;
+                result[5] = report.finished ? 1 : 0;
+            }
+            int left = 0;
+            List<NovaAutoDeleteStore.Entry> queue = instance.state.getQueue();
+            for (int i = 0, count = queue.size(); i < count; i++) {
+                NovaAutoDeleteStore.Entry entry = queue.get(i);
+                if (entry.dialogId == dialogId
+                        && (entry.flags & NovaAutoDeleteStore.FLAG_ERASE) != 0) {
+                    left++;
+                }
+            }
+            result[4] = left;
+            if (left > 0) {
+                // A report that says it is finished while entries are still
+                // queued is a state that should not exist; answered as
+                // unfinished rather than trusted, because a window closes on
+                // this flag.
+                result[5] = 0;
+            }
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+        return result;
+    }
+
     private void drop(NovaAutoDeleteStore.Entry entry) {
         state.remove(entry.dialogId, entry.messageId);
         busy.remove(entry);
         scheduleSave();
+        NotificationCenter.getInstance(currentAccount)
+                .postNotificationName(NotificationCenter.novaEraseProgress, entry.dialogId);
         if ((entry.flags & NovaAutoDeleteStore.FLAG_ERASE) != 0) {
             checkReportFinished(entry.dialogId);
         }

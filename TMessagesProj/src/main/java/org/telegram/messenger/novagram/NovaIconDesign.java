@@ -347,14 +347,17 @@ public final class NovaIconDesign {
         }
     }
 
+    /**
+     * Painted twice: over the plate, and again inside the mark. A pattern that
+     * only ever touched the background changed the picture without changing
+     * the thing in the middle of it, which is not what picking a texture is
+     * for.
+     */
     private static void paintTexture(
-            Canvas canvas, int texture, int style, int accent, RectF box, Path plate) {
+            Canvas canvas, int texture, int ink, int ink2, RectF box, Path plate) {
         if (texture == 0) {
             return;
         }
-        final boolean dark = (style == 1 || style == 8);
-        final int ink = dark ? alpha(accent, 51) : 0x29FFFFFF;
-        final int ink2 = dark ? alpha(accent, 31) : 0x1A000000;
         final float side = Math.min(box.width(), box.height());
         final float u = side / 16f;
         final float x0 = box.left, y0 = box.top;
@@ -520,7 +523,8 @@ public final class NovaIconDesign {
         return value - (float) Math.floor(value);
     }
 
-    private static void paintPlane(Canvas canvas, int style, int accent, RectF box) {
+    /** The mark, as two facets plus the union the texture pass clips to. */
+    private static Path[] planePaths(RectF box) {
         final float side = Math.min(box.width(), box.height());
         final float inner = side * 0.58f;
         final float left = box.left + (box.width() - inner) / 2f;
@@ -536,7 +540,17 @@ public final class NovaIconDesign {
         fold.lineTo(left + 0.98f * inner, top + 0.04f * inner);
         fold.lineTo(left + 0.58f * inner, top + 0.98f * inner);
         fold.close();
+        final Path whole = new Path(wing);
+        whole.addPath(fold);
+        return new Path[] { wing, fold, whole };
+    }
 
+    /**
+     * The colour of the mark for a style, and what sits under it: the texture
+     * pass inside the mark paints the plate showing through, so it needs both.
+     * Index 0 is the mark, index 1 the plate.
+     */
+    private static int[] planeColors(int style, int accent) {
         int plate = accent;
         int main = planeColor(accent);
         if (style == 1 || style == 8) {
@@ -549,7 +563,14 @@ public final class NovaIconDesign {
             main = 0x2A2622;
             plate = shade(accent, 0.62f);
         }
+        return new int[] { main, plate };
+    }
 
+    private static void paintPlane(Canvas canvas, int style, int[] colors, Path[] paths) {
+        final Path wing = paths[0];
+        final Path fold = paths[1];
+        final int main = colors[0];
+        final int plate = colors[1];
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         if (style == 4) {
             // Cutout takes the mark out of the plate instead of drawing it on
@@ -579,10 +600,27 @@ public final class NovaIconDesign {
         final RectF box = new RectF(inset, inset, size - inset, size - inset);
         final int accent = ACCENT_COLORS[design.accent];
         final int second = ACCENT_COLORS[wrap(design.accent + 9, ACCENTS)];
+        final boolean dark = (design.style == 1 || design.style == 8);
         final Path plate = platePath(design.style, box);
         paintPlate(canvas, design.style, accent, second, box, plate);
-        paintTexture(canvas, design.texture, design.style, accent, box, plate);
-        paintPlane(canvas, design.style, accent, box);
+        // Over the plate, and strong enough to be seen at a glance: at the
+        // alpha this started with, the whole row of textures looked alike.
+        paintTexture(canvas, design.texture,
+                dark ? alpha(accent, 105) : 0x5CFFFFFF,
+                dark ? alpha(accent, 64) : 0x40000000,
+                box, plate);
+        final Path[] paths = planePaths(box);
+        final int[] colors = planeColors(design.style, accent);
+        paintPlane(canvas, design.style, colors, paths);
+        if (design.style != 4) {
+            // And inside the mark: the plate colour painted through the plane,
+            // so the texture reads as the mark being made of it rather than as
+            // wallpaper behind it. Cutout is skipped - its mark is a hole, and
+            // painting into a hole fills it.
+            paintTexture(canvas, design.texture,
+                    alpha(colors[1], 190), alpha(colors[1], 130),
+                    box, paths[2]);
+        }
         return bitmap;
     }
 

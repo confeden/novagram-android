@@ -175,7 +175,7 @@ public final class NovaDoh {
         if (result != null) {
             return result;
         }
-        List<Endpoint> list = new ArrayList<>(4);
+        List<Endpoint> list = new ArrayList<>(5);
         for (NovaPrivacyContract.DohProvider provider : NovaPrivacyContract.DOH_ORDER) {
             String endpoint = provider.getEndpoint();
             int slash = endpoint.indexOf('/', "https://".length());
@@ -196,6 +196,9 @@ public final class NovaDoh {
             case GOOGLE:
                 return addresses("8.8.8.8", "8.8.4.4",
                         "2001:4860:4860::8888", "2001:4860:4860::8844");
+            case DNSAI:
+                return addresses("192.144.59.14", "186.246.49.127",
+                        "2a0a:2b41:0:500d::53", "2a0d:8480:0:67c::14");
             case ADGUARD:
                 return addresses("94.140.14.14", "94.140.15.15",
                         "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff");

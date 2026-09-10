@@ -57,6 +57,11 @@
     <string name="NovaDropIncomingStop">Stop deleting future messages</string>
     <string name="NovaDropIncomingTurnOn">Start deleting</string>
     <string name="NovaDropIncomingAbout">Everything this person sends from now on is deleted on this device before it is stored, shown or announced — no notification, no unread badge, no way to read it later. Nothing is deleted for them: their chat and their messages stay as they are, and they keep seeing the messages as unread. Switches itself off as soon as you send anything here — a message or a reaction.</string>
+    <string name="NovaEraseProgress">Messages of yours found: %1$d
+Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
+    <string name="NovaEraseProgressLeft">Left in the queue: %1$d. This window closes itself once the queue is through — leave it up to watch.</string>
+    <string name="NovaEraseProgressDone">Done. This window closes in a few seconds.</string>
+    <string name="NovaAboutRow">What this does:</string>
     <string name="NovaIconHeader">Icon</string>
     <string name="NovaIconStyle">Style</string>
     <string name="NovaIconTexture">Texture</string>

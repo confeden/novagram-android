@@ -10,7 +10,7 @@
     The domain config below is the exception, and it is the point of the file.
     A network that can present a certificate for cloudflare-dns.com is a network
     that decides what every name in this client resolves to. Ruling out
-    user-installed anchors for those four hosts means an intercepting proxy ends
+    user-installed anchors for those five hosts means an intercepting proxy ends
     the connection with a verification error instead of quietly answering in the
     resolver's place — the error is the correct outcome, not a fault.
 
@@ -44,5 +44,9 @@
         <domain includeSubdomains="false">dns.quad9.net</domain>
         <domain includeSubdomains="false">9.9.9.9</domain>
         <domain includeSubdomains="false">149.112.112.112</domain>
+
+        <domain includeSubdomains="false">dns.dns-ai.ru</domain>
+        <domain includeSubdomains="false">192.144.59.14</domain>
+        <domain includeSubdomains="false">186.246.49.127</domain>
     </domain-config>
 </network-security-config>

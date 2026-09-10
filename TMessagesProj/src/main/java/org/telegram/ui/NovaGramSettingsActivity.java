@@ -119,6 +119,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
 
     private final ArrayList<Item> items = new ArrayList<>();
 
+    /**
+     * Which descriptions are open, keyed by the string resource of the text
+     * itself. A counter would shift the moment a row above appears or
+     * disappears - the PIN rows do exactly that - and the wrong description
+     * would open.
+     */
+    private final java.util.HashSet<Integer> openedAbout = new java.util.HashSet<>();
+
     private final NovaUpdateChecker.Listener updateListener = () -> {
         if (adapter != null) {
             buildItems();
@@ -250,6 +258,11 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean enabled = !NovaOutgoingMetadata.isEnabled();
             NovaOutgoingMetadata.setEnabled(enabled);
             ((TextCheckCell) view).setChecked(enabled);
+        } else if (openedAbout.contains(item.id) || isAboutRow(item)) {
+            if (!openedAbout.remove(item.id)) {
+                openedAbout.add(item.id);
+            }
+            buildItems();
         } else if (item.id == ID_ICON_APPLY) {
             applyIconDesign();
         } else if (item.id == ID_CRASH_STICKERS) {
@@ -471,6 +484,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
      * user's consent. Said plainly in the row's own explanation rather than
      * dressed up as "the icon changed".</p>
      */
+    /**
+     * A description row carries the string resource of its own text as its id,
+     * and those are far above the handful of row ids this screen uses.
+     */
+    private static boolean isAboutRow(Item item) {
+        return item.viewType == VIEW_TYPE_TEXT && item.id > 0x7f000000;
+    }
+
     private void applyIconDesign() {
         if (iconPicker == null || getParentActivity() == null) {
             return;
@@ -507,6 +528,18 @@ public class NovaGramSettingsActivity extends BaseFragment {
         }
     }
 
+    /** Adds the collapsed line and, when it is open, the text under it. */
+    private void addAbout(int stringId) {
+        addAbout(stringId, LocaleController.getString(stringId));
+    }
+
+    private void addAbout(int stringId, CharSequence full) {
+        items.add(Item.about(stringId));
+        if (openedAbout.contains(stringId)) {
+            items.add(Item.shadow(full));
+        }
+    }
+
     private void buildItems() {
         items.clear();
         boolean appPinSet = isAppPinSet();
@@ -518,7 +551,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
         // First in the section on purpose: it works with no PIN set, and it is
         // the only thing between a copied data directory and the account.
         items.add(Item.check(ID_DEVICE_BINDING, LocaleController.getString(R.string.NovaDeviceBindingTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaDeviceBindingInfo)));
+        addAbout(R.string.NovaDeviceBindingInfo);
         items.add(Item.value(
                 ID_APP_PIN,
                 LocaleController.getString(R.string.NovaSettingsAppPin),
@@ -539,24 +572,24 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.add(Item.text(ID_EMERGENCY_PIN, LocaleController.getString(R.string.NovaEmergencySettingsTitle)));
         // One shadow, not two: the policy explanation only makes sense next to
         // the row that sets it, and that row only exists once a PIN does.
-        items.add(Item.shadow(appPinSet
+        addAbout(R.string.NovaSettingsPinsInfo, appPinSet
                 ? LocaleController.getString(R.string.NovaSettingsPinsInfo)
                         + "\n\n"
                         + LocaleController.getString(R.string.NovaPinPolicyInfo)
-                : LocaleController.getString(R.string.NovaSettingsPinsInfo)));
+                : LocaleController.getString(R.string.NovaSettingsPinsInfo));
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsPrivacyHeader)));
         items.add(Item.check(ID_SCREENSHOTS, LocaleController.getString(R.string.NovaSettingsScreenshotProtection)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaSettingsScreenshotInfo)));
+        addAbout(R.string.NovaSettingsScreenshotInfo);
 
         items.add(Item.check(ID_AUTOTRANSLATE, LocaleController.getString(R.string.NovaAutoTranslateTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaAutoTranslateInfo)));
+        addAbout(R.string.NovaAutoTranslateInfo);
 
         // The one row here whose switch is the plain thing rather than the
         // protection: it is the same bit as Telegram's own "Sync contacts", and
         // giving it the opposite polarity in this screen would make two
         // switches for one value disagree on sight.
         items.add(Item.check(ID_CONTACT_SYNC, LocaleController.getString(R.string.NovaContactSyncTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaContactSyncInfo)));
+        addAbout(R.string.NovaContactSyncInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaAutoDeleteHeader)));
         items.add(Item.check(ID_AUTO_DELETE, LocaleController.getString(R.string.NovaAutoDeleteEnable)));
@@ -566,36 +599,36 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     LocaleController.getString(R.string.NovaAutoDeletePeriod),
                     formatPeriod(NovaAutoDelete.getPeriodHours(currentAccount))));
         }
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaAutoDeleteInfo)));
+        addAbout(R.string.NovaAutoDeleteInfo);
 
         items.add(Item.check(ID_READ_STATUS, LocaleController.getString(R.string.NovaReadStatusTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaReadStatusInfo)));
+        addAbout(R.string.NovaReadStatusInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaCallsHeader)));
         items.add(Item.check(ID_CALLS_RELAY, LocaleController.getString(R.string.NovaCallsRelayTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaCallsRelayInfo)));
+        addAbout(R.string.NovaCallsRelayInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaDohHeader)));
         items.add(Item.value(
                 ID_DOH,
                 LocaleController.getString(R.string.NovaDohTitle),
                 String.valueOf(enabledDohCount())));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaDohInfo)));
+        addAbout(R.string.NovaDohInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaIconHeader)));
         items.add(Item.icon());
         items.add(Item.text(ID_ICON_APPLY, LocaleController.getString(R.string.NovaIconApply)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaIconInfo)));
+        addAbout(R.string.NovaIconInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaStickersHeader)));
         items.add(Item.check(ID_CRASH_STICKERS, LocaleController.getString(R.string.NovaCrashStickerTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaCrashStickerInfo)));
+        addAbout(R.string.NovaCrashStickerInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaFilesHeader)));
         items.add(Item.check(ID_FILE_NAMES, LocaleController.getString(R.string.NovaFileNamesTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaFileNamesInfo)));
+        addAbout(R.string.NovaFileNamesInfo);
         items.add(Item.check(ID_METADATA, LocaleController.getString(R.string.NovaMetadataTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaMetadataInfo)));
+        addAbout(R.string.NovaMetadataInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaSendingHeader)));
         items.add(Item.check(ID_NIGHT_SILENT, LocaleController.getString(R.string.NovaNightSilentTitle)));
@@ -604,7 +637,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
             items.add(Item.check(ID_NIGHT_SILENT_GROUPS, LocaleController.getString(R.string.NovaNightSilentGroups)));
             items.add(Item.check(ID_NIGHT_SILENT_CHANNELS, LocaleController.getString(R.string.NovaNightSilentChannels)));
         }
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaNightSilentInfo)));
+        addAbout(R.string.NovaNightSilentInfo);
 
         // Two switches, two sections. They are easy to mistake for one another
         // and they answer opposite halves of the same question: the first is
@@ -614,17 +647,17 @@ public class NovaGramSettingsActivity extends BaseFragment {
         // false about one of them.
         items.add(Item.header(LocaleController.getString(R.string.NovaNotificationsHeader)));
         items.add(Item.check(ID_PUSH_PREVIEW, LocaleController.getString(R.string.NovaPushPreviewTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaPushPreviewInfo)));
+        addAbout(R.string.NovaPushPreviewInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaNotificationContentHeader)));
         items.add(Item.check(ID_HIDE_CONTENT, LocaleController.getString(R.string.NovaHideContentTitle)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaHideContentInfo)));
+        addAbout(R.string.NovaHideContentInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsUpdatesHeader)));
         items.add(Item.check(ID_UPDATE_CHECK, LocaleController.getString(R.string.NovaSettingsUpdateCheck)));
         items.add(Item.value(ID_UPDATE_STATE, updateStateText(), updateStateValue()));
         items.add(Item.text(ID_UPDATE_NOTES, LocaleController.getString(R.string.NovaUpdateNotes)));
-        items.add(Item.shadow(LocaleController.getString(R.string.NovaSettingsUpdateInfo)));
+        addAbout(R.string.NovaSettingsUpdateInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsAboutHeader)));
         items.add(Item.value(
@@ -632,10 +665,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 LocaleController.getString(R.string.NovaSettingsVersion),
                 NovaUpdateChecker.RELEASE_TAG));
         items.add(Item.text(ID_PROJECT, LocaleController.getString(R.string.NovaSettingsProject)));
-        items.add(Item.shadow(LocaleController.formatString(
+        addAbout(R.string.NovaSettingsAboutInfo, LocaleController.formatString(
                 "NovaSettingsAboutInfo",
                 R.string.NovaSettingsAboutInfo,
-                baseVersion())));
+                baseVersion()));
         if (adapter != null) {
             adapter.notifyDataSetChanged();
         }
@@ -727,6 +760,16 @@ public class NovaGramSettingsActivity extends BaseFragment {
             return new Item(VIEW_TYPE_SHADOW, 0, text, "");
         }
 
+        /**
+         * The collapsed line. Nineteen descriptions standing open under their
+         * switches turned this screen into a wall nobody reads; one line each,
+         * opened by pressing it, is what makes the list navigable - and it
+         * lets the text underneath run as long as it honestly needs to.
+         */
+        static Item about(int stringId) {
+            return new Item(VIEW_TYPE_TEXT, stringId, "", "");
+        }
+
         static Item icon() {
             return new Item(VIEW_TYPE_ICON, ID_ICON_PICKER, "", "");
         }
@@ -770,6 +813,11 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean divider = position + 1 < items.size() && items.get(position + 1).viewType == item.viewType;
             if (item.viewType == VIEW_TYPE_HEADER) {
                 ((HeaderCell) holder.itemView).setText(item.text);
+            } else if (item.viewType == VIEW_TYPE_TEXT && isAboutRow(item)) {
+                TextSettingsCell cell = (TextSettingsCell) holder.itemView;
+                cell.setText(
+                        LocaleController.getString(R.string.NovaAboutRow),
+                        divider);
             } else if (item.viewType == VIEW_TYPE_TEXT) {
                 TextSettingsCell cell = (TextSettingsCell) holder.itemView;
                 if (TextUtils.isEmpty(item.value)) {

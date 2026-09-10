@@ -13156,6 +13156,24 @@ public class ChatActivity extends BaseFragment implements
                     updateNovaReadStatusPanel();
                 });
         builder.setNegativeButton(LocaleController.getString(R.string.Close), null);
+        if (NovaDropIncoming.offered(currentAccount, getDialogId())) {
+            // The switch that belongs with this one, offered where the rule it
+            // depends on is explained. It also has an entry in the chat menu,
+            // and that is deliberate: this dialog is opened from the note above
+            // the messages, which is where most people meet the hiding at all.
+            final long dialogId = getDialogId();
+            final boolean dropping = NovaDropIncoming.active(currentAccount, dialogId);
+            builder.setNeutralButton(LocaleController.getString(dropping
+                    ? R.string.NovaDropIncomingStop
+                    : R.string.NovaDropIncomingTitle), (dialog2, which) -> {
+                if (dropping) {
+                    NovaDropIncoming.disable(currentAccount, dialogId);
+                    updateNovaDropIncomingItem();
+                } else {
+                    showNovaDropIncomingDialog();
+                }
+            });
+        }
         AlertDialog dialog = builder.create();
         showDialog(dialog);
         TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
@@ -13269,6 +13287,77 @@ public class ChatActivity extends BaseFragment implements
         if (chatAdapter != null) {
             chatAdapter.notifyDataSetChanged(true);
         }
+    }
+
+    /**
+     * The window that stays up while the queue works.
+     *
+     * <p>Erase evidence used to answer with one line - "queued: 47" - and then
+     * went quiet for as long as the queue took. Nothing on the screen said
+     * whether it was working, finished or stuck. So the work is now watched:
+     * the numbers move while it runs, the window cannot be dismissed until it
+     * is through, and afterwards it waits ten seconds - or until it is closed -
+     * so the result is actually read.</p>
+     */
+    public void showNovaEraseProgress(long dialogId, int found) {
+        if (getParentActivity() == null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
+        builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
+        builder.setMessage("");
+        AlertDialog dialog = builder.create();
+        dialog.setCanCancel(false);
+        showDialog(dialog);
+
+        final Runnable[] closer = new Runnable[1];
+        final boolean[] finished = new boolean[1];
+        final NotificationCenter.NotificationCenterDelegate[] watcher =
+                new NotificationCenter.NotificationCenterDelegate[1];
+        final Runnable update = () -> {
+            int[] p = NovaAutoDelete.eraseProgress(currentAccount, dialogId);
+            int queued = p[0] > 0 ? p[0] : found;
+            String text = LocaleController.formatString(
+                    "NovaEraseProgress",
+                    R.string.NovaEraseProgress,
+                    queued, p[2], p[1], p[3]);
+            if (p[5] == 0) {
+                text += "\n\n" + LocaleController.formatString(
+                        "NovaEraseProgressLeft", R.string.NovaEraseProgressLeft, p[4]);
+            } else {
+                text += "\n\n" + LocaleController.getString(R.string.NovaEraseProgressDone);
+            }
+            dialog.setMessage(text);
+            if (p[5] != 0 && !finished[0]) {
+                finished[0] = true;
+                // Only now may it be dismissed, and only now does it carry a
+                // button: while the queue runs there is nothing to press that
+                // would stop it, and a button that does nothing is a lie.
+                dialog.setCanCancel(true);
+                AndroidUtilities.runOnUIThread(closer[0], 10_000L);
+            }
+        };
+        closer[0] = () -> {
+            if (dialog.isShowing()) {
+                dialog.dismiss();
+            }
+        };
+        watcher[0] = (id, account, args) -> {
+            if (id == NotificationCenter.novaEraseProgress
+                    && args.length > 0
+                    && args[0] instanceof Long
+                    && (Long) args[0] == dialogId) {
+                update.run();
+            }
+        };
+        NotificationCenter.getInstance(currentAccount)
+                .addObserver(watcher[0], NotificationCenter.novaEraseProgress);
+        dialog.setOnDismissListener(d -> {
+            NotificationCenter.getInstance(currentAccount)
+                    .removeObserver(watcher[0], NotificationCenter.novaEraseProgress);
+            AndroidUtilities.cancelRunOnUIThread(closer[0]);
+        });
+        update.run();
     }
 
     private void showNovaEraseEvidenceDialog() {

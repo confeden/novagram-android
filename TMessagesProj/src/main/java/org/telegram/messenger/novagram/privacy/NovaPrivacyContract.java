@@ -40,7 +40,20 @@ public final class NovaPrivacyContract {
         CLOUDFLARE("cloudflare", "https://cloudflare-dns.com/dns-query"),
         GOOGLE("google", "https://dns.google/dns-query"),
         ADGUARD("adguard", "https://dns.adguard-dns.com/dns-query"),
-        QUAD9("quad9", "https://dns.quad9.net/dns-query");
+        QUAD9("quad9", "https://dns.quad9.net/dns-query"),
+        /**
+         * The fifth is not one of the big four, and that is the point: a
+         * network that wants to know who is asking already knows where to look
+         * for the other four. Its certificate is Let's Encrypt, whose roots
+         * this build already trusts for DoH.
+         *
+         * <p>It answers over HTTP/2 only — an HTTP/1.1 request gets 505 — and
+         * this resolver writes HTTP/1.1 by hand over a TLS socket, so until the
+         * server accepts h1 the endpoint is reached, refused and stepped over
+         * to the next one. The desktop half, which lets Qt negotiate h2, uses
+         * it today.</p>
+         */
+        DNSAI("dnsai", "https://dns.dns-ai.ru/dns-query");
 
         private final String id;
         private final String endpoint;
@@ -80,14 +93,15 @@ public final class NovaPrivacyContract {
      * reassigned by the user, by settings, by the system or by the network, and
      * a stored order would be exactly such a reassignment. It was one until
      * 2026-08-15, when {@code doh_provider_order} was removed from preferences.
-     * The same four endpoints in the same order are compiled into the desktop
+     * The same five endpoints in the same order are compiled into the desktop
      * client; if one side changes, both change.
      */
     public static final List<DohProvider> DOH_ORDER = Collections.unmodifiableList(Arrays.asList(
             DohProvider.CLOUDFLARE,
             DohProvider.GOOGLE,
             DohProvider.ADGUARD,
-            DohProvider.QUAD9
+            DohProvider.QUAD9,
+            DohProvider.DNSAI
     ));
 
     private NovaPrivacyContract() {
