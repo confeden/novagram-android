@@ -43,6 +43,7 @@ public class NovaIconPicker extends LinearLayout {
     private final ImageView preview;
     private final Strip[] strips = new Strip[3];
     private NovaIconDesign.Design draft;
+    private Runnable onChanged;
 
     public NovaIconPicker(
             Context context,
@@ -50,6 +51,7 @@ public class NovaIconPicker extends LinearLayout {
             Runnable onChanged) {
         super(context);
         this.resourcesProvider = resourcesProvider;
+        this.onChanged = onChanged;
         this.draft = NovaIconDesign.current();
 
         setOrientation(VERTICAL);
@@ -65,15 +67,15 @@ public class NovaIconPicker extends LinearLayout {
         strips[0] = addStrip(NovaIconDesign.STYLES,
                 index -> draft.withStyle(index),
                 index -> NovaIconDesign.styleName(index),
-                index -> draft = draft.withStyle(index));
+                index -> chose(draft.withStyle(index)));
         strips[1] = addStrip(NovaIconDesign.TEXTURES,
                 index -> draft.withTexture(index),
                 index -> NovaIconDesign.textureName(index),
-                index -> draft = draft.withTexture(index));
+                index -> chose(draft.withTexture(index)));
         strips[2] = addStrip(NovaIconDesign.ACCENTS,
                 index -> draft.withAccent(index),
                 index -> NovaIconDesign.accentName(index),
-                index -> draft = draft.withAccent(index));
+                index -> chose(draft.withAccent(index)));
         strips[0].setCurrent(draft.style);
         strips[1].setCurrent(draft.texture);
         strips[2].setCurrent(draft.accent);
@@ -82,6 +84,37 @@ public class NovaIconPicker extends LinearLayout {
 
     public NovaIconDesign.Design getDraft() {
         return draft;
+    }
+
+    /**
+     * Told after every choice, so that whoever owns the draft keeps it rather
+     * than this view. The view is recycled; the draft must not be.
+     */
+    public void setOnChanged(Runnable listener) {
+        onChanged = listener;
+    }
+
+    /**
+     * Shows a draft that was made elsewhere - the one the owner is holding
+     * while this view was away being recycled. Silent: it is not a choice, and
+     * telling the owner what the owner just said would be a loop.
+     */
+    public void setDraft(NovaIconDesign.Design design) {
+        if (design == null || design.equals(draft)) {
+            return;
+        }
+        draft = design;
+        strips[0].setCurrent(draft.style);
+        strips[1].setCurrent(draft.texture);
+        strips[2].setCurrent(draft.accent);
+        redraw();
+    }
+
+    private void chose(NovaIconDesign.Design design) {
+        draft = design;
+        if (onChanged != null) {
+            onChanged.run();
+        }
     }
 
     private interface Variant {

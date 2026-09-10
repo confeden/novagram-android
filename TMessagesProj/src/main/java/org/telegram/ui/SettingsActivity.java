@@ -695,7 +695,11 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         if (!NovaDecoyState.isActive()) {
             // NovaGram's own settings, kept out of the stock Telegram menus.
             // Hidden in the decoy, which must never name the fork out loud.
-            items.add(SettingCell.Factory.of(4, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_privacy, getString(R.string.NovaSettingsTitle), getString(R.string.NovaSettingsRowSubtitle)));
+            // A shield, the same mark the desktop drawer uses for this row -
+            // the key belongs to the stock privacy row three lines up, and two
+            // identical keys one under the other said the fork's section was a
+            // second copy of it.
+            items.add(SettingCell.Factory.of(4, IconBackgroundColors.PURPLE.top, IconBackgroundColors.PURPLE.bottom, R.drawable.settings_policy, getString(R.string.NovaSettingsTitle), getString(R.string.NovaSettingsRowSubtitle)));
         }
         items.add(SettingCell.Factory.of(5, IconBackgroundColors.RED.top, IconBackgroundColors.RED.bottom, R.drawable.settings_sounds, getString(R.string.SettingsNotifications), getString(R.string.SettingsNotificationsInfo)));
         items.add(SettingCell.Factory.of(6, IconBackgroundColors.BLUE_DEEP.top, IconBackgroundColors.BLUE_DEEP.bottom, R.drawable.settings_data, getString(R.string.SettingsData), getString(R.string.SettingsDataInfo)));

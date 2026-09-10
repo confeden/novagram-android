@@ -65,10 +65,18 @@ public class NovaGramSettingsActivity extends BaseFragment {
 
     private RecyclerListView listView;
     /**
-     * The picker holds the draft while it is being walked, so the row that
-     * applies it has to reach the same instance the list is showing.
+     * The draft the picker is walking, kept here rather than in the view.
+     *
+     * It used to live in one long-lived NovaIconPicker that every holder of
+     * that row was handed, because a second, recycled picker would carry a
+     * different draft than the row below it applies. Handing the same View to
+     * two holders is not something RecyclerView survives: it prefetches the
+     * row while the list is scrolling, creates a second holder around that one
+     * view and tears it out of the parent it is currently laid out in. Keeping
+     * the draft out here makes the picker an ordinary recyclable view - the
+     * bind writes the draft into it, the picker writes back on every choice.
      */
-    private NovaIconPicker iconPicker;
+    private NovaIconDesign.Design iconDraft;
     private ListAdapter adapter;
 
     private static final int VIEW_TYPE_HEADER = 0;
@@ -499,11 +507,23 @@ public class NovaGramSettingsActivity extends BaseFragment {
         return item.viewType == VIEW_TYPE_TEXT && item.id > 0x7f000000;
     }
 
+    /**
+     * The draft, which is what the picker starts from and what the row below
+     * it applies. Whatever is in force is the answer until the picker has been
+     * touched, so the row is never pressed with nothing behind it.
+     */
+    private NovaIconDesign.Design iconDraft() {
+        if (iconDraft == null) {
+            iconDraft = NovaIconDesign.current();
+        }
+        return iconDraft;
+    }
+
     private void applyIconDesign() {
-        if (iconPicker == null || getParentActivity() == null) {
+        if (getParentActivity() == null) {
             return;
         }
-        final NovaIconDesign.Design design = iconPicker.getDraft();
+        final NovaIconDesign.Design design = iconDraft();
         NovaIconDesign.setCurrent(design);
         try {
             if (!ShortcutManagerCompat.isRequestPinShortcutSupported(getParentActivity())) {
@@ -682,9 +702,27 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 "NovaSettingsAboutInfo",
                 R.string.NovaSettingsAboutInfo,
                 baseVersion()));
-        if (adapter != null) {
-            adapter.notifyDataSetChanged();
+        notifyAdapter();
+    }
+
+    /**
+     * The list is rebuilt from things that happen on their own schedule - the
+     * update checker changing state is the loud one - and RecyclerView refuses
+     * to be told about a change while it is laying out or dispatching a
+     * scroll: it throws rather than draw something it cannot place. Deferred
+     * to the next message when that is the case, which is one frame later and
+     * invisible, and which cannot loop, because a layout that has finished
+     * does not start again by itself.
+     */
+    private void notifyAdapter() {
+        if (adapter == null) {
+            return;
         }
+        if (listView != null && listView.isComputingLayout()) {
+            AndroidUtilities.runOnUIThread(this::notifyAdapter);
+            return;
+        }
+        adapter.notifyDataSetChanged();
     }
 
     /**
@@ -800,17 +838,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
             } else if (viewType == VIEW_TYPE_SHADOW) {
                 view = new TextInfoPrivacyCell(getContext());
             } else if (viewType == VIEW_TYPE_ICON) {
-                // One instance for the life of the screen: it carries the draft
-                // the arrows walk, and a recycled second one would carry a
-                // different draft than the row below it applies.
-                if (iconPicker == null) {
-                    iconPicker = new NovaIconPicker(getContext(), null, null);
-                }
-                if (iconPicker.getParent() instanceof ViewGroup) {
-                    ((ViewGroup) iconPicker.getParent()).removeView(iconPicker);
-                }
-                view = iconPicker;
-                view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                // An ordinary view like every other one here: the draft it
+                // shows is written in on bind and written back out on every
+                // choice, so a recycled picker is the same picker as far as
+                // anyone looking at it is concerned.
+                NovaIconPicker picker = new NovaIconPicker(getContext(), null, null);
+                picker.setOnChanged(() -> iconDraft = picker.getDraft());
+                picker.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                view = picker;
             } else {
                 view = new TextSettingsCell(getContext());
             }
@@ -905,6 +940,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
                             || NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);
                 }
                 ((TextCheckCell) holder.itemView).setTextAndCheck(item.text.toString(), checked, divider);
+            } else if (item.viewType == VIEW_TYPE_ICON) {
+                // Named here, and not left to the branch below, which is the
+                // whole reason this row used to take the screen down: that one
+                // ends in a cast to TextInfoPrivacyCell, and every view type
+                // not answered for above walks into it. The picker reached it,
+                // was cast to a cell it is not, and the list died the first
+                // time anyone scrolled far enough to see it.
+                ((NovaIconPicker) holder.itemView).setDraft(iconDraft());
             } else {
                 TextInfoPrivacyCell cell = (TextInfoPrivacyCell) holder.itemView;
                 if (TextUtils.isEmpty(item.text)) {
