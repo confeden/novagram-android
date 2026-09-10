@@ -36,6 +36,15 @@ import java.util.zip.GZIPInputStream;
  * same limits; the desktop half is the one that needed it, but a fork promise
  * is made for both platforms.</p>
  *
+ * <h3>What it looks at, and what it does not</h3>
+ *
+ * <p>Stickers from a real set, and nothing else. Emoji of every kind are out:
+ * reactions, animated emoji, custom emoji, statuses, topic icons, dice and
+ * gift animations are the same .tgs files to a decoder, but they are not what
+ * a sender hands you — and an ordinary reaction being shown as "neutralised"
+ * is a false accusation about a file Telegram itself supplied. See
+ * {@code isSticker}.</p>
+ *
  * <h3>What "not a sticker" means</h3>
  *
  * <p>Telegram's own publishing rules, loosened by a wide margin: 512x512
@@ -53,12 +62,12 @@ public final class NovaCrashStickers {
     private static final int MAX_SIDE = 1024;
     private static final long MAX_AREA = 1024L * 1024L;
     private static final long MAX_FILE_BYTES = 4L * 1024 * 1024;
-    private static final int MAX_UNPACKED_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_UNPACKED_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DURATION_SECONDS = 30;
 
     private static final int MAX_DEPTH = 128;
     private static final int MAX_OBJECTS = 200 * 1000;
-    private static final int MAX_ITEMS = 100 * 1000;
+    private static final int MAX_ITEMS = 1000 * 1000;
     private static final int MAX_REPEATER_COPIES = 100;
     private static final double MAX_FPS = 120.;
     private static final double MAX_FRAMES = 1200.;
@@ -120,18 +129,18 @@ public final class NovaCrashStickers {
         if (!isEnabled()) {
             return false;
         }
-        if (document != null) {
-            if (!isSticker(document)) {
-                // Photos, videos and plain files are none of this switch's
-                // business: refusing one would hide something real.
-                return false;
-            } else if (declaredDangerous(document)) {
-                return true;
-            }
-        } else if (!lottie) {
-            // Nothing says this is a sticker, and the loader is not about to
-            // hand it to rlottie either.
+        if (document == null) {
+            // Nothing says what this is, so nothing says it is a sticker. What
+            // reaches here with no document is the application's own bundled
+            // animation, not a file anybody sent — and judging those produced
+            // accusations instead of protection.
             return false;
+        } else if (!isSticker(document)) {
+            // Photos, videos, plain files and every kind of emoji are none of
+            // this switch's business: refusing one would hide something real.
+            return false;
+        } else if (declaredDangerous(document)) {
+            return true;
         }
         return refuseByFile(lottie, path);
     }
@@ -160,17 +169,37 @@ public final class NovaCrashStickers {
         return dangerous;
     }
 
+    /**
+     * A sticker, and nothing else that happens to be drawn by the same
+     * decoder. Emoji are deliberately outside this: reactions, animated emoji,
+     * statuses, topic icons, dice and gift animations all arrive as .tgs files
+     * and all went through here, which made an ordinary reaction show up as
+     * "neutralised" — a false accusation about a file Telegram itself supplied.
+     *
+     * <p>The line is who chose the file. This guard exists against a document
+     * <em>another user sends</em>, and only a real set — one with an id or a
+     * short name — can be sent from. Everything the server hands out from its
+     * own configuration carries one of the special set types or no set at all,
+     * and none of it is content anybody picked to send here. A custom emoji is
+     * refused as a sticker for the same reason and by the owner's rule: emoji
+     * are not checked, stickers are.</p>
+     */
     private static boolean isSticker(TLRPC.Document document) {
         if (document.attributes == null) {
             return false;
         }
+        TLRPC.TL_documentAttributeSticker sticker = null;
         for (int a = 0; a < document.attributes.size(); a++) {
-            if (document.attributes.get(a) instanceof TLRPC.TL_documentAttributeSticker
-                    || document.attributes.get(a) instanceof TLRPC.TL_documentAttributeCustomEmoji) {
-                return true;
+            TLRPC.DocumentAttribute attribute = document.attributes.get(a);
+            if (attribute instanceof TLRPC.TL_documentAttributeCustomEmoji) {
+                return false;
+            } else if (attribute instanceof TLRPC.TL_documentAttributeSticker) {
+                sticker = (TLRPC.TL_documentAttributeSticker) attribute;
             }
         }
-        return false;
+        return sticker != null
+                && (sticker.stickerset instanceof TLRPC.TL_inputStickerSetID
+                        || sticker.stickerset instanceof TLRPC.TL_inputStickerSetShortName);
     }
 
     /**
@@ -215,13 +244,34 @@ public final class NovaCrashStickers {
             return true;
         }
         if (lottie || gzipped(file)) {
-            final String json = unpack(file);
-            if (json == null) {
+            final Unpacked unpacked = unpack(file);
+            if (unpacked.overflowed) {
+                // Only a bomb gets here. Measured on a popular pack: the
+                // heaviest sticker's JSON is 445 KB, and the cap is 4 MB.
                 return true;
+            } else if (unpacked.json == null) {
+                // Not something this can read, and a file it cannot read is
+                // not a file it can accuse: rlottie refuses garbage by itself,
+                // and it is a bomb that parses which this exists to stop.
+                return false;
             }
-            return lottieDangerous(json);
+            return lottieDangerous(unpacked.json);
         }
         return imageDangerous(file);
+    }
+
+    /** The animation, and whether it was cut off at {@link #MAX_UNPACKED_BYTES}. */
+    private static final class Unpacked {
+        static final Unpacked UNREADABLE = new Unpacked(null, false);
+        static final Unpacked OVERFLOWED = new Unpacked(null, true);
+
+        final String json;
+        final boolean overflowed;
+
+        Unpacked(String json, boolean overflowed) {
+            this.json = json;
+            this.overflowed = overflowed;
+        }
     }
 
     private static boolean gzipped(File file) {
@@ -234,21 +284,39 @@ public final class NovaCrashStickers {
         }
     }
 
-    /** Returns null when the file is not a gzip, is broken, or inflates past the cap. */
-    private static String unpack(File file) {
-        try (GZIPInputStream gzip = new GZIPInputStream(new FileInputStream(file))) {
+    /**
+     * The animation's JSON, however the file happens to hold it.
+     *
+     * <p>A .tgs on the wire is gzipped JSON, and this used to assume that the
+     * file on disk is the same thing. It is not: Telegram caches an animated
+     * sticker <b>already inflated</b>, so the file with the .tgs name is plain
+     * JSON. The assumption made {@code GZIPInputStream} throw on every real
+     * sticker, and "could not unpack" was being read as "dangerous" — which
+     * hid whole packs behind "Краш-стикер (обезврежен)". Both shapes are read
+     * now, and the one that never actually arrives here is the gzip.</p>
+     */
+    private static Unpacked unpack(File file) {
+        final boolean gzip = gzipped(file);
+        try (InputStream stream = gzip
+                ? new GZIPInputStream(new FileInputStream(file))
+                : new FileInputStream(file)) {
             final ByteArrayOutputStream out = new ByteArrayOutputStream();
             final byte[] buffer = new byte[16 * 1024];
             int read;
-            while ((read = gzip.read(buffer)) > 0) {
+            while ((read = stream.read(buffer)) > 0) {
                 if (out.size() + read > MAX_UNPACKED_BYTES) {
-                    return null;
+                    return Unpacked.OVERFLOWED;
                 }
                 out.write(buffer, 0, read);
             }
-            return out.toString("UTF-8");
+            final String json = out.toString("UTF-8");
+            // Whatever it is, it has to look like the object rlottie will be
+            // handed. Anything else is not judged rather than accused.
+            return json.trim().startsWith("{")
+                    ? new Unpacked(json, false)
+                    : Unpacked.UNREADABLE;
         } catch (Throwable e) {
-            return null;
+            return Unpacked.UNREADABLE;
         }
     }
 
