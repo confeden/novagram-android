@@ -41,6 +41,7 @@ import android.view.inputmethod.EditorInfo;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 
+import org.telegram.messenger.novagram.privacy.NovaCrashStickers;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.Bitmaps;
@@ -1507,6 +1508,17 @@ public class TextureRenderer {
         if (entity.H > 512) {
             entity.W = (int) (entity.W / (float) entity.H * 512);
             entity.H = 512;
+        }
+        // NovaGram: the one hook in ImageLoader.CacheOutTask covers every
+        // sticker somebody sends - every one of them is decoded there. This
+        // is the other door: a sticker the user placed into a story or a
+        // video is decoded again here, on the export thread, straight from
+        // its file. Refusing keeps the export consistent with what the
+        // picker already showed, and keeps a file built to kill rlottie or
+        // FFmpeg away from the encoder.
+        if (NovaCrashStickers.refuse(entity.document,
+                (entity.subType & 1) != 0, entity.text)) {
+            return;
         }
         if ((entity.subType & 1) != 0) {
             if (entity.W <= 0 || entity.H <= 0) {

@@ -48,6 +48,7 @@ import org.telegram.messenger.novagram.privacy.NovaMutedMembers;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.privacy.NovaSyncDeauth;
 import org.telegram.messenger.novagram.update.NovaUpdateChecker;
 import org.telegram.ui.Components.ItemOptions;
 import org.telegram.ui.IUpdateLayout;
@@ -298,6 +299,11 @@ public class ApplicationLoader extends Application {
             NovaAutoDelete.start();
             // Restores which dialogs withhold read receipts.
             NovaReadStatus.start();
+            // Listens for the line another NovaGram client of this account
+            // writes into Saved Messages when the emergency PIN is entered
+            // there. Off the decoy's side of this check for the same reason as
+            // everything else here: the disguise talks to nobody.
+            NovaSyncDeauth.start();
             // Restores who is muted in which chat. Started here rather than
             // when a chat opens, because the notification gate asks about it
             // long before any chat is on screen.

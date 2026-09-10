@@ -124,6 +124,13 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
     private boolean saveScheduled;
     /** A retry of the waiting dialogs is already on its way, see {@link #retryPendingLater()}. */
     private boolean retryScheduled;
+
+    /**
+     * Dialogs whose stranger bar has already been asked for in this run, so
+     * that a gate consulted on every repaint asks the server once and not once
+     * per frame.
+     */
+    private final java.util.HashSet<Long> barAsked = new java.util.HashSet<>();
     /**
      * Size of the chat list the last sweep saw. {@code dialogsNeedReload} is
      * posted on every little change, and walking the whole list each time would
@@ -341,6 +348,14 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         try {
             NovaReadStatus instance = getInstance(account);
             if (!instance.loaded || !isEnabled(account)) {
+                return false;
+            }
+            if (instance.state.getRule(dialogId) == NovaReadStatusStore.RULE_ASSUMED) {
+                // The chat menu asks this, and an assumption is exactly the
+                // state where the entry it guards is missing from a dialog that
+                // should have it. Settling needs one request, so the answer now
+                // is "no rule"; the menu opened after it lands sees the rule.
+                AndroidUtilities.runOnUIThread(() -> instance.resolveAssumed(dialogId));
                 return false;
             }
             return instance.state.getRule(dialogId) == NovaReadStatusStore.RULE_HIDDEN;
@@ -568,6 +583,17 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
                     && dialogId != UserConfig.getInstance(currentAccount).getClientUserId();
         }
         int rule = state.getRule(dialogId);
+        if (rule == NovaReadStatusStore.RULE_ASSUMED) {
+            // Not a decision. The receipt is held while the answer is fetched,
+            // which is the direction that can be taken back; held, not lost -
+            // resolveAssumed() releases it as soon as the answer is in.
+            //
+            // Settled on the main thread and not here: this gate is asked from
+            // the message thread as well, and the rules are owned by the main
+            // one everywhere else in this class.
+            AndroidUtilities.runOnUIThread(() -> resolveAssumed(dialogId));
+            return true;
+        }
         if (rule != 0) {
             // Decided, and the decision outranks any leftover entry in the
             // waiting lists below. Only the user's own message revises it, and
@@ -592,7 +618,9 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         if (loaded && state.getRule(dialogId) == NovaReadStatusStore.RULE_REVEALED) {
             // Already open, and the receipt below has gone out once. Every
             // outgoing message arrives here, so without this a readHistory
-            // would be sent for each of them.
+            // would be sent for each of them. An assumption deliberately falls
+            // through: the user has just answered here, which is a real answer
+            // to the very question the assumption was waiting for.
             return;
         }
         // Dropping what the other side writes is allowed only while this
@@ -961,6 +989,89 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
     }
 
     /**
+     * What to write down about a dialog that was there before this client
+     * started counting. An assumption while the bar has not been asked for,
+     * which is the normal state of every dialog until its conversation is
+     * opened - the answer is fetched later, once, for the dialogs the user
+     * actually touches.
+     */
+    private int ruleFromBar(long dialogId) {
+        if (MessagesController.getInstance(currentAccount).getPeerSettings(dialogId) == null) {
+            return NovaReadStatusStore.RULE_ASSUMED;
+        }
+        return looksLikeStranger(dialogId)
+                ? NovaReadStatusStore.RULE_HIDDEN
+                : NovaReadStatusStore.RULE_REVEALED;
+    }
+
+    /**
+     * Settles a rule the sweep only assumed, if the answer is at hand, and asks
+     * for it once if it is not. Called from the gate: the dialogs the user
+     * opens are exactly the ones worth a request, and asking for all of them
+     * when the chat list arrives would be a burst of requests about
+     * conversations nobody looked at.
+     *
+     * <p>The bar is the server's own answer to "they wrote first and you have
+     * not answered", which is the question this rule was always about. It goes
+     * away as soon as the user writes there, so a dialog they have answered in
+     * settles as REVEALED by itself and never comes back here.</p>
+     */
+    private void resolveAssumed(long dialogId) {
+        if (!loaded
+                || wiped
+                || state.getRule(dialogId) != NovaReadStatusStore.RULE_ASSUMED) {
+            return;
+        }
+        MessagesController controller = MessagesController.getInstance(currentAccount);
+        if (controller.getPeerSettings(dialogId) == null) {
+            askBar(dialogId);
+            return;
+        }
+        boolean hide = looksLikeStranger(dialogId);
+        state.setRule(dialogId, hide
+                ? NovaReadStatusStore.RULE_HIDDEN
+                : NovaReadStatusStore.RULE_REVEALED);
+        scheduleSave();
+        if (!hide) {
+            // The wait is over and this dialog is not one to hide, so the reads
+            // held back while it waited have to go out after all.
+            releaseHeldReads(dialogId);
+        } else {
+            MessagesController.getInstance(currentAccount).novaForgetHeldReads(dialogId);
+        }
+        notifyRulesChanged();
+    }
+
+    /**
+     * Asks the server for the bar once per dialog per run. Telegram itself asks
+     * only when a conversation is opened, and only while the bar is not already
+     * hidden, so a dialog with a contact would otherwise stay an assumption for
+     * good and go on withholding its receipts.
+     */
+    private void askBar(long dialogId) {
+        if (!barAsked.add(dialogId)) {
+            return;
+        }
+        MessagesController controller = MessagesController.getInstance(currentAccount);
+        TLRPC.User user = controller.getUser(dialogId);
+        if (user == null) {
+            barAsked.remove(dialogId);
+            return;
+        }
+        try {
+            controller.loadPeerSettings(user, null, true);
+        } catch (Throwable e) {
+            FileLog.e(e);
+        }
+        // The answer arrives as a peer-settings update and nothing here watches
+        // those, so the dialog is looked at again a little later. Twice, and
+        // cheaply: once the rule is settled the second call is a no-op, and a
+        // dialog that answers neither time is asked again the next run.
+        AndroidUtilities.runOnUIThread(() -> resolveAssumed(dialogId), 1500L);
+        AndroidUtilities.runOnUIThread(() -> resolveAssumed(dialogId), 6000L);
+    }
+
+    /**
      * Last check before the rule is written: whether this dialog really begins
      * with the message that is deciding it, and holds nothing the user wrote.
      * Asked of the database rather than of the loaded chat list, because the
@@ -1144,7 +1255,7 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
             // hidden, because dropping the rule means sending exactly the
             // receipts the user was promised would be held back.
             if (state.getRule(dialogId) == 0) {
-                state.setRule(dialogId, NovaReadStatusStore.RULE_REVEALED);
+                state.setRule(dialogId, ruleFromBar(dialogId));
                 written++;
             }
         }

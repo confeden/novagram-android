@@ -15,6 +15,8 @@
     <string name="NovaSettingsSecurityHeader">Security</string>
     <string name="NovaSettingsAppPin">Application PIN</string>
     <string name="NovaSettingsPinsInfo">The application PIN protects access after signing in. The emergency PIN, entered instead of it under coercion, signs out of every account and destroys local data.</string>
+    <string name="NovaSyncDeauthTitle">Synchronous deauthorization</string>
+    <string name="NovaSyncDeauthInfo">The emergency PIN destroys only the device it was typed on. With this on, that device first writes a 24-character line into Saved Messages and waits for the server, and only then wipes itself, while every other NovaGram client of the account does the same - even one with no PIN. A line older than the last login is refused; with no network the wait ends after 12 seconds.</string>
     <string name="NovaSettingsPrivacyHeader">Privacy</string>
     <string name="NovaSettingsScreenshotProtection">Block screenshots</string>
     <string name="NovaSettingsScreenshotInfo">Blocks screenshots and screen recording of the whole NovaGram window, the recents thumbnail included, and does not need a Telegram passcode to do it. Instant View articles and mini apps draw in windows of their own and are not covered.</string>
@@ -62,7 +64,7 @@ Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
     <string name="NovaEraseProgressLeft">Left in the queue: %1$d. This window closes itself once the queue is through — leave it up to watch.</string>
     <string name="NovaEraseProgressDone">Done. This window closes in a few seconds.</string>
     <string name="NovaPeerIdNoKey">This client has no access key for that number. Telegram does not allow opening a peer by a bare number: it has to be met in a chat, by @name, by phone number or by link. The number alone does not even say whether it is a person, a group or a channel.</string>
-    <string name="NovaAboutRow">What this does:</string>
+    <string name="NovaAboutRow">What this does ›</string>
     <string name="NovaIconHeader">Icon</string>
     <string name="NovaIconStyle">Style</string>
     <string name="NovaIconTexture">Texture</string>

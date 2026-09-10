@@ -3,6 +3,7 @@ package org.telegram.ui;
 import android.content.Context;
 import android.content.Intent;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -36,6 +37,7 @@ import org.telegram.messenger.novagram.privacy.NovaPinVault;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyFeature;
 import org.telegram.messenger.novagram.privacy.NovaCallPolicy;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.privacy.NovaSyncDeauth;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
 import org.telegram.messenger.novagram.privacy.NovaTranslationPolicy;
 import org.telegram.messenger.novagram.update.NovaUpdateChecker;
@@ -104,6 +106,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_CRASH_STICKERS = 27;
     private static final int ID_ICON_PICKER = 28;
     private static final int ID_ICON_APPLY = 29;
+    private static final int ID_SYNC_DEAUTH = 30;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -223,6 +226,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
             // is told to. Without this the switch would take effect at the next
             // start, which is after the screenshot it was meant to prevent.
             LaunchActivity.novaRefreshFlagSecure();
+        } else if (item.id == ID_SYNC_DEAUTH) {
+            boolean enabled = !NovaSyncDeauth.isEnabled(getParentActivity());
+            NovaSyncDeauth.setEnabled(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_AUTOTRANSLATE) {
             boolean enabled = !NovaTranslationPolicy.isChannelFlagIgnored();
             NovaTranslationPolicy.setChannelFlagIgnored(getParentActivity(), enabled);
@@ -577,6 +584,12 @@ public class NovaGramSettingsActivity extends BaseFragment {
                         + "\n\n"
                         + LocaleController.getString(R.string.NovaPinPolicyInfo)
                 : LocaleController.getString(R.string.NovaSettingsPinsInfo));
+        // Directly under the emergency PIN it extends, and above the privacy
+        // header: it is the one row on this screen whose effect is not local to
+        // this device.
+        items.add(Item.check(ID_SYNC_DEAUTH, LocaleController.getString(R.string.NovaSyncDeauthTitle)));
+        addAbout(R.string.NovaSyncDeauthInfo);
+
         items.add(Item.header(LocaleController.getString(R.string.NovaSettingsPrivacyHeader)));
         items.add(Item.check(ID_SCREENSHOTS, LocaleController.getString(R.string.NovaSettingsScreenshotProtection)));
         addAbout(R.string.NovaSettingsScreenshotInfo);
@@ -815,11 +828,20 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 ((HeaderCell) holder.itemView).setText(item.text);
             } else if (item.viewType == VIEW_TYPE_TEXT && isAboutRow(item)) {
                 TextSettingsCell cell = (TextSettingsCell) holder.itemView;
+                // Quiet on purpose: there is one of these under almost every
+                // switch, and a door has to be findable, not as loud as the
+                // thing it stands next to. Both branches state the colour and
+                // the size, because the same cell is recycled between them and
+                // whichever stayed silent would inherit the other's.
+                cell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
+                cell.getTextView().setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
                 cell.setText(
                         LocaleController.getString(R.string.NovaAboutRow),
                         divider);
             } else if (item.viewType == VIEW_TYPE_TEXT) {
                 TextSettingsCell cell = (TextSettingsCell) holder.itemView;
+                cell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+                cell.getTextView().setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
                 if (TextUtils.isEmpty(item.value)) {
                     cell.setText(item.text.toString(), divider);
                 } else {
@@ -876,6 +898,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaTranslationPolicy.isChannelFlagIgnored();
                 } else if (item.id == ID_CONTACT_SYNC) {
                     checked = NovaContactSync.isEnabled(currentAccount);
+                } else if (item.id == ID_SYNC_DEAUTH) {
+                    checked = NovaSyncDeauth.isEnabled(getContext());
                 } else {
                     checked = item.id != ID_SCREENSHOTS
                             || NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);

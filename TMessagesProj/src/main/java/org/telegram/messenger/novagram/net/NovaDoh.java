@@ -10,6 +10,7 @@ import org.telegram.messenger.novagram.privacy.NovaPrivacyContract;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
 
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -122,8 +123,19 @@ public final class NovaDoh {
         public final List<String> addresses;
         public final boolean builtin;
         public final boolean enabled;
+        /**
+         * DNS-over-TLS on port 853 instead of DNS-over-HTTPS on 443. Set only
+         * by {@link #builtin()}, never by the stored blob and never by an
+         * endpoint the owner adds: it describes the server, not a preference,
+         * and the built-in list is compiled in rather than read from disk.
+         */
+        public final boolean dot;
 
         public Endpoint(String host, String path, List<String> addresses, boolean builtin, boolean enabled) {
+            this(host, path, addresses, builtin, enabled, false);
+        }
+
+        public Endpoint(String host, String path, List<String> addresses, boolean builtin, boolean enabled, boolean dot) {
             this.host = host;
             this.path = path;
             this.addresses = addresses == null
@@ -131,10 +143,11 @@ public final class NovaDoh {
                     : Collections.unmodifiableList(new ArrayList<>(addresses));
             this.builtin = builtin;
             this.enabled = enabled;
+            this.dot = dot;
         }
 
         public Endpoint withEnabled(boolean value) {
-            return new Endpoint(host, path, addresses, builtin, value);
+            return new Endpoint(host, path, addresses, builtin, value, dot);
         }
     }
 
@@ -181,7 +194,15 @@ public final class NovaDoh {
             int slash = endpoint.indexOf('/', "https://".length());
             String host = endpoint.substring("https://".length(), slash);
             String path = endpoint.substring(slash);
-            list.add(new Endpoint(host, path, bootstrapFor(provider), true, true));
+            // The fifth endpoint answers over HTTP/2 only, and this half
+            // writes HTTP/1.1 by hand over a TLS socket - an h1 request gets
+            // 505 and the walk falls through to the next endpoint, so it was
+            // present in the list and never actually used. DNS-over-TLS is the
+            // way in: the same socket, a two-byte length and the same DNS
+            // message this file already builds and parses, and no HTTP at all.
+            // Less code than the HTTP path it replaces, rather than more.
+            list.add(new Endpoint(host, path, bootstrapFor(provider), true, true,
+                    provider == NovaPrivacyContract.DohProvider.DNSAI));
         }
         result = Collections.unmodifiableList(list);
         builtin = result;
@@ -614,6 +635,9 @@ public final class NovaDoh {
         if (query == null) {
             return null;
         }
+        if (endpoint.dot) {
+            return askOverTls(endpoint, address, host, type, query);
+        }
         String where = endpoint.host + " [" + address + "]";
         SSLSocket ssl = null;
         try {
@@ -641,6 +665,79 @@ public final class NovaDoh {
             reader.drain(body, MAX_ANSWER_BYTES, 0, null, null);
             Answer parsed = parseResponse(body.toByteArray(), type);
             return new Answer(parsed.values, parsed.ttlMs, stamp);
+        } catch (Throwable e) {
+            FileLog.e(LOG_PREFIX + "endpoint " + where + " failed: " + e);
+            return null;
+        } finally {
+            NovaHttps.close(ssl);
+        }
+    }
+
+    /**
+     * RFC 7858: the same DNS message this file already builds, sent over TLS on
+     * port 853 behind a two-byte length, with no HTTP anywhere.
+     *
+     * <p>Why an endpoint gets this instead of DNS-over-HTTPS: the HTTP written
+     * a few lines above is HTTP/1.1 by hand, and a server that speaks HTTP/2
+     * only answers it with 505. That is not worth an HTTP/2 implementation, and
+     * it does not need one - DoT is strictly less code than the path it
+     * replaces, because everything an HTTP response needs (a status line,
+     * headers, a chunked body) is replaced by two bytes of length.</p>
+     *
+     * <p>What is not weaker here: the socket, the SNI and the certificate check
+     * are the same {@link NovaHttps#connect} the HTTPS path uses, so what stops
+     * the network answering in the endpoint's place is still a certificate
+     * checked against the name. What is lost is the {@code Date} header, so
+     * this endpoint contributes no server clock - the walk keeps the stamp any
+     * other endpoint gave, so nothing depends on this one for it.</p>
+     */
+    private static Answer askOverTls(
+            Endpoint endpoint,
+            String address,
+            String host,
+            int type,
+            byte[] query) {
+        String where = endpoint.host + " [" + address + "]:853";
+        SSLSocket ssl = null;
+        try {
+            FileLog.d(LOG_PREFIX + "query " + host + "/" + typeName(type)
+                    + " via " + where);
+            ssl = NovaHttps.connect(endpoint.host, address, proxyFor(), TIMEOUT_MS, 853);
+            OutputStream out = ssl.getOutputStream();
+            out.write((query.length >> 8) & 0xFF);
+            out.write(query.length & 0xFF);
+            out.write(query);
+            out.flush();
+
+            InputStream in = ssl.getInputStream();
+            int high = in.read();
+            int low = in.read();
+            if (high < 0 || low < 0) {
+                FileLog.e(LOG_PREFIX + "endpoint " + where + " closed early");
+                return null;
+            }
+            int length = (high << 8) | low;
+            if (length <= 0 || length > MAX_ANSWER_BYTES) {
+                // A length this side of nothing or past the cap is not an
+                // answer. Refused rather than allocated: the field is two
+                // attacker-chosen bytes.
+                FileLog.e(LOG_PREFIX + "endpoint " + where
+                        + " answered with length " + length);
+                return null;
+            }
+            byte[] body = new byte[length];
+            int read = 0;
+            while (read < length) {
+                int got = in.read(body, read, length - read);
+                if (got < 0) {
+                    FileLog.e(LOG_PREFIX + "endpoint " + where
+                            + " cut the answer at " + read + " of " + length);
+                    return null;
+                }
+                read += got;
+            }
+            Answer parsed = parseResponse(body, type);
+            return new Answer(parsed.values, parsed.ttlMs, 0);
         } catch (Throwable e) {
             FileLog.e(LOG_PREFIX + "endpoint " + where + " failed: " + e);
             return null;

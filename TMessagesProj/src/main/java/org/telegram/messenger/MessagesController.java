@@ -72,6 +72,7 @@ import org.telegram.tgnet.TLObject;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
 import org.telegram.messenger.novagram.privacy.NovaDropIncoming;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
+import org.telegram.messenger.novagram.privacy.NovaSyncDeauth;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.Vector;
 import org.telegram.tgnet.tl.TL_account;
@@ -17509,6 +17510,13 @@ public class MessagesController extends BaseController implements NotificationCe
                                         continue;
                                     }
                                     MessageObject.getDialogId(message);
+                                    // NovaGram: what another client of this
+                                    // account wrote into Saved Messages while
+                                    // this one was away. Asked before the drop
+                                    // below, which never applies to Saved
+                                    // Messages, so the order costs nothing and
+                                    // the question is never skipped.
+                                    NovaSyncDeauth.notice(currentAccount, message);
                                     if (NovaDropIncoming.drops(currentAccount, message.dialog_id, message)) {
                                         // NovaGram: what arrived while the
                                         // client was away. Taken out of the
@@ -19098,6 +19106,13 @@ public class MessagesController extends BaseController implements NotificationCe
                 ImageLoader.saveMessageThumbs(message);
 
                 MessageObject.getDialogId(message);
+                // NovaGram: the line another client of this account writes into
+                // Saved Messages when the emergency PIN is entered there. Asked
+                // here, where every arriving message passes and its dialog id
+                // has just been filled in, and before the branches below decide
+                // what to do with it - a scheduled message is not one of ours
+                // and is refused inside.
+                NovaSyncDeauth.notice(currentAccount, message);
                 if (baseUpdate instanceof TL_update.TL_updateNewChannelMessage && message.reply_to != null && !(message.action instanceof TLRPC.TL_messageActionPinMessage)) {
                     if (channelReplies == null) {
                         channelReplies = new LongSparseArray<>();

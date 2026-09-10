@@ -15,6 +15,8 @@
     <string name="NovaSettingsSecurityHeader">Безопасность</string>
     <string name="NovaSettingsAppPin">PIN приложения</string>
     <string name="NovaSettingsPinsInfo">PIN приложения защищает доступ после входа. Аварийный PIN, введённый вместо него под принуждением, выполняет выход из всех аккаунтов и уничтожает локальные данные.</string>
+    <string name="NovaSyncDeauthTitle">Синхронная деавторизация</string>
+    <string name="NovaSyncDeauthInfo">Аварийный PIN уничтожает только то устройство, где его ввели. С этой настройкой оно сначала пишет в «Избранное» строку из 24 символов и дожидается сервера, и лишь потом стирает себя, а остальные клиенты NovaGram этого аккаунта делают то же самое — даже без PIN. Строка старше последнего входа не принимается; без сети ожидание обрывается через 12 секунд.</string>
     <string name="NovaSettingsPrivacyHeader">Конфиденциальность</string>
     <string name="NovaSettingsScreenshotProtection">Защита от скриншотов</string>
     <string name="NovaSettingsScreenshotInfo">Блокирует снимки и запись всего окна NovaGram, включая эскиз в списке недавних, и не требует для этого пароля Telegram. Статьи Instant View и мини-приложения рисуются в отдельных окнах — на них защита не распространяется.</string>
@@ -62,7 +64,7 @@
     <string name="NovaEraseProgressLeft">Осталось в очереди: %1$d. Окно закроется само, когда очередь дойдёт до конца, — не закрывайте его, чтобы видеть ход.</string>
     <string name="NovaEraseProgressDone">Готово. Окно закроется через несколько секунд.</string>
     <string name="NovaPeerIdNoKey">У этого клиента нет ключа доступа к этому номеру. Telegram не позволяет открыть собеседника по одному номеру: его нужно встретить в чате, по @имени, по номеру телефона или по ссылке. Номер сам по себе не говорит даже, человек это, группа или канал.</string>
-    <string name="NovaAboutRow">Описание функции:</string>
+    <string name="NovaAboutRow">Описание функции ›</string>
     <string name="NovaIconHeader">Значок</string>
     <string name="NovaIconStyle">Стиль</string>
     <string name="NovaIconTexture">Текстура</string>

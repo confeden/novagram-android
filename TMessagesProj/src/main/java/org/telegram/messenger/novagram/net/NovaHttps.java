@@ -76,13 +76,29 @@ public final class NovaHttps {
      */
     public static SSLSocket connect(String name, String address, Proxy proxy, int timeoutMs)
             throws Exception {
+        return connect(name, address, proxy, timeoutMs, 443);
+    }
+
+    /**
+     * The same TLS socket on a port of the caller's choosing. 443 is HTTPS;
+     * 853 is DNS-over-TLS, which the resolver uses for an endpoint that speaks
+     * no HTTP/1.1. Nothing else about the connection differs - the name still
+     * travels in SNI and is still checked against the certificate, which is
+     * what makes reaching a literal address safe in the first place.
+     */
+    public static SSLSocket connect(
+            String name,
+            String address,
+            Proxy proxy,
+            int timeoutMs,
+            int port) throws Exception {
         Socket raw = new Socket(proxy == null ? Proxy.NO_PROXY : proxy);
         SSLSocket ssl = null;
         try {
-            raw.connect(new InetSocketAddress(InetAddress.getByName(address), 443), timeoutMs);
+            raw.connect(new InetSocketAddress(InetAddress.getByName(address), port), timeoutMs);
             raw.setSoTimeout(timeoutMs);
             ssl = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
-                    .createSocket(raw, name, 443, true);
+                    .createSocket(raw, name, port, true);
             applyServerName(ssl, name);
             ssl.startHandshake();
             if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(name, ssl.getSession())) {

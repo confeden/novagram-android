@@ -33,6 +33,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
 import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaEmergencyWipe;
+import org.telegram.messenger.novagram.privacy.NovaSyncDeauth;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.messenger.novagram.privacy.NovaPinVault;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyContract;
@@ -904,6 +905,20 @@ public final class NovaPinGateActivity extends Activity {
         descriptionView.setText(R.string.NovaPinCheckingPin);
         errorView.setText("");
         executor.execute(() -> {
+            // Claimed before anything else: this device is being destroyed by
+            // the PIN typed here, and the line written below comes back over
+            // the update stream a moment later. Without the claim that echo
+            // would start a second destruction on top of this one, in the
+            // middle of the wait.
+            NovaSyncDeauth.claimWipe();
+            // Warn the account's other clients first and destroy second, never
+            // the other way round: the wipe takes the authorization key with it
+            // and after that there is nothing left to warn anybody with.
+            // Returns at once when there is nothing to send, and after twelve
+            // seconds at the latest when the network never answers - the screen
+            // shows the same "checking" state it shows for an ordinary PIN
+            // throughout, so the wait gives nothing away.
+            NovaSyncDeauth.broadcastAndWait(getApplicationContext());
             NovaEmergencyWipe.run(getApplicationContext());
             AndroidUtilities.runOnUIThread(() -> {
                 Intent intent = new Intent(this, LaunchActivity.class);

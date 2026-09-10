@@ -46,6 +46,22 @@ public final class NovaReadStatusStore {
     public static final int RULE_HIDDEN = 1;
     /** The user turned hiding off here; the choice is permanent. */
     public static final int RULE_REVEALED = 2;
+    /**
+     * Written down by the sweep over the dialogs the account already had,
+     * while the one thing that could have told them apart - the bar the server
+     * offers over a stranger who wrote first - had not been asked for. It
+     * behaves like a {@link #RULE_REVEALED} that is not final: receipts are
+     * withheld, and the first real answer about that peer turns it into one of
+     * the two above.
+     *
+     * <p>Its whole reason: the sweep runs when the chat list arrives, and at
+     * that moment the peer settings are unknown for every dialog, because they
+     * are only asked for when a conversation is opened. So the sweep used to
+     * write REVEALED over every dialog the account already had - including the
+     * ones a stranger had started and the user never answered, which are
+     * exactly the ones the feature is for.</p>
+     */
+    public static final int RULE_ASSUMED = 3;
 
     public static final String KEY_ALIAS = "novagram.readstatus.state.v1";
     /**
@@ -70,11 +86,17 @@ public final class NovaReadStatusStore {
     private static final int INNER_MAGIC = 0x4e565231; // NVR1
     /**
      * Version 2 added the baseline date; version 3 the per-dialog watermark of
-     * "drop what arrives from here on". Version 1 blobs are read as "no
+     * "drop what arrives from here on"; version 4 tells a REVEALED the client
+     * was told from one it only assumed. Version 1 blobs are read as "no
      * baseline", version 2 blobs as "no dialog drops anything" - both are the
-     * state those builds actually meant.
+     * state those builds actually meant - and in a blob older than 4 every
+     * REVEALED becomes an assumption, because the sweep wrote them without an
+     * answer and a real reveal wrote the same value. Asking again settles both
+     * correctly: a dialog the user has written in shows no stranger bar. A
+     * HIDDEN is never re-asked - taking one back would send the receipts it
+     * held.
      */
-    private static final int STORAGE_VERSION = 3;
+    private static final int STORAGE_VERSION = 4;
     private static final int MIN_STORAGE_VERSION = 1;
     private static final int GCM_IV_BYTES = 12;
     private static final int MAX_STATE_BYTES = 256 * 1024;
@@ -296,8 +318,11 @@ public final class NovaReadStatusStore {
             for (int i = 0; i < count; i++) {
                 long dialogId = input.readLong();
                 int rule = input.readInt();
-                if (rule != RULE_HIDDEN && rule != RULE_REVEALED) {
+                if (rule != RULE_HIDDEN && rule != RULE_REVEALED && rule != RULE_ASSUMED) {
                     throw new CorruptStateException("Invalid rule");
+                }
+                if (version < 4 && rule == RULE_REVEALED) {
+                    rule = RULE_ASSUMED;
                 }
                 state.rules.put(dialogId, rule);
             }
@@ -500,7 +525,7 @@ public final class NovaReadStatusStore {
         }
 
         public void setRule(long dialogId, int rule) {
-            if (rule != RULE_HIDDEN && rule != RULE_REVEALED) {
+            if (rule != RULE_HIDDEN && rule != RULE_REVEALED && rule != RULE_ASSUMED) {
                 throw new IllegalArgumentException("Unknown read status rule " + rule);
             }
             if (rules.containsKey(dialogId) || rules.size() < MAX_RULES) {
