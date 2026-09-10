@@ -56,7 +56,7 @@ public final class NovaUpdateChecker {
      * from the package, so the whole tag has to be written down here and bumped
      * together with the bases.
      */
-    public static final String RELEASE_TAG = "v7.2.7/12.10.1.1";
+    public static final String RELEASE_TAG = "v7.2.7/12.10.1.2";
 
     /**
      * {@code /releases/latest} skips drafts and prereleases, which is exactly
