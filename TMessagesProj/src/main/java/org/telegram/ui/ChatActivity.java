@@ -12199,7 +12199,15 @@ public class ChatActivity extends BaseFragment implements
 
         final int paddingTop = (int) chatListViewPaddingTop;
         if (topicsTabs != null) {
-            topicsTabs.setSideMenuBackgroundMarginTop(0);//Math.max(0, paddingTop - blurredViewTopOffset - dp(5)));
+            // NovaGram: this forced the rail of rooms to a top offset of zero,
+            // with the expression that works it out commented out beside it.
+            // The offset really belongs to checkUi_topPanelPositions(), and
+            // whichever of the two ran last won. Coming back from a room ran
+            // this one last, so the rail slid up under the header and stayed
+            // there until something laid the panels out again - a pull on the
+            // list, or the next panel change, which is why it appeared to fix
+            // itself a moment later. The owner is asked instead.
+            checkUi_topPanelPositions();
         }
         chatListViewPaddingsAnimator.setPaddings(paddingTop, paddingBottom, !chatListView.fastScrollAnimationRunning);
         if (messageMetricsView != null) {
