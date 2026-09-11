@@ -14,6 +14,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
 import org.telegram.tgnet.TLRPC;
@@ -143,6 +144,32 @@ public final class NovaCrashStickers {
             return true;
         }
         return refuseByFile(lottie, path);
+    }
+
+    /**
+     * Whether this document must not leave the device.
+     *
+     * <p>What the guard refuses to draw it also refuses to relay: the file
+     * would arrive at somebody whose client has no such guard, and forwarding
+     * a crash file is the only thing worse than opening one. Asked on the send
+     * and forward paths, where the file is already on disk - a sticker that is
+     * being sent has been drawn first, so the verdict is usually cached.</p>
+     */
+    public static boolean refuseToSend(int account, TLRPC.Document document) {
+        if (!isEnabled() || document == null || !isSticker(document)) {
+            return false;
+        } else if (declaredDangerous(document)) {
+            return true;
+        }
+        final File file = FileLoader.getInstance(account).getPathToAttach(document, true);
+        if (file == null || !file.exists()) {
+            // Nothing on disk to look at. Not refused: the send path is not
+            // the place to guess, and whoever draws it will ask again.
+            return false;
+        }
+        return refuseByFile(
+                "application/x-tgsticker".equals(document.mime_type),
+                file.getAbsolutePath());
     }
 
     private static boolean refuseByFile(boolean lottie, String path) {

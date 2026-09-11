@@ -102,8 +102,9 @@ Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
     </string-array>
     <string name="NovaStickersHeader">Stickers</string>
     <string name="NovaCrashStickerTitle">Crash sticker guard</string>
-    <string name="NovaCrashStickerInfo">A sticker built to kill the client instead of being drawn never reaches the decoder: a “Crash sticker (defused)” plate takes its place. The size, the dimensions, the length and the shape of the file itself are checked — a sticker made by Telegram’s own rules is nowhere near the limits.</string>
+    <string name="NovaCrashStickerInfo">A file that poses as a sticker but is built as a bomb — enormous once unpacked, nested hundreds of levels deep, or repeating one shape hundreds of times — never reaches the decoder, and is not passed on either. A “Crash sticker (defused)” plate takes its place. A real sticker is nowhere near those limits. This does not recognise a file that is ordinary in shape and crashes some other client through a bug in its decoder.</string>
     <string name="NovaCrashStickerDefused">Crash sticker (defused)</string>
+    <string name="NovaCrashStickerNotSent">NovaGram refused this sticker, so it is not sent on either.</string>
     <string name="NovaSettingsUpdatesHeader">Updates</string>
     <string name="NovaSettingsUpdateCheck">Check for updates</string>
     <string name="NovaSettingsUpdateInfo">At most once every eight hours NovaGram asks GitHub for the latest release of this project — the only network request it makes outside Telegram, and all it reveals is that the client is running. The package is verified against a checksum, and installing it over the current one keeps chats and settings.</string>

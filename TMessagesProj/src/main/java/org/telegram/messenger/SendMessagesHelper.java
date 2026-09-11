@@ -63,6 +63,7 @@ import org.telegram.tgnet.NativeByteBuffer;
 import org.telegram.tgnet.RequestDelegate;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLObject;
+import org.telegram.messenger.novagram.privacy.NovaCrashStickers;
 import org.telegram.messenger.novagram.privacy.NovaNightSilent;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.messenger.novagram.privacy.NovaReadStatus;
@@ -100,6 +101,7 @@ import org.telegram.ui.Stars.StarsIntroActivity;
 import org.telegram.ui.TON.TONIntroActivity;
 import org.telegram.ui.bots.BotWebViewSheet;
 import org.telegram.ui.Components.Bulletin;
+import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.Premium.LimitReachedBottomSheet;
 import org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble;
@@ -1780,6 +1782,19 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         if (messageObject == null) {
             return;
         }
+        // NovaGram: the other door out. A forward re-sends the file itself, so
+        // a document the guard refused stops here too - see sendSticker.
+        if (messageObject.messageOwner != null
+                && messageObject.messageOwner.media != null
+                && messageObject.messageOwner.media.document instanceof TLRPC.TL_document
+                && NovaCrashStickers.refuseToSend(
+                        currentAccount,
+                        messageObject.messageOwner.media.document)) {
+            AndroidUtilities.runOnUIThread(() -> BulletinFactory.global()
+                    .createErrorBulletin(LocaleController.getString(R.string.NovaCrashStickerNotSent))
+                    .show());
+            return;
+        }
         if (messageObject.messageOwner.media != null && !(messageObject.messageOwner.media instanceof TLRPC.TL_messageMediaEmpty) && !(messageObject.messageOwner.media instanceof TLRPC.TL_messageMediaWebPage) && !(messageObject.messageOwner.media instanceof TLRPC.TL_messageMediaGame) && !(messageObject.messageOwner.media instanceof TLRPC.TL_messageMediaInvoice)) {
             HashMap<String, String> params = null;
             if (DialogObject.isEncryptedDialog(did) && messageObject.messageOwner.peer_id != null && (messageObject.messageOwner.media.photo instanceof TLRPC.TL_photo || messageObject.messageOwner.media.document instanceof TLRPC.TL_document)) {
@@ -1915,6 +1930,17 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
 
     public void sendSticker(TLRPC.Document document, String query, long peer, CharSequence caption, VideoEditedInfo videoEditedInfo, MessageObject replyToMsg, MessageObject replyToTopMsg, TL_stories.StoryItem storyItem, ChatActivity.ReplyQuote quote, MessageObject.SendAnimationData sendAnimationData, boolean notify, int scheduleDate, int scheduleRepeatPeriod, boolean updateStickersOrder, Object parentObject, SendMessageChatArguments sendMessageChatArguments, long stars, long monoForumPeerId, MessageSuggestionParams suggestionParams, boolean invertMedia) {
         if (document == null) {
+            return;
+        }
+        // NovaGram: what the guard refuses to draw it refuses to relay. The
+        // file would land on somebody whose client has no such guard, and
+        // passing a crash file on is worse than opening one. Every way of
+        // sending a sticker - the panel, the search, a reply - comes through
+        // here; forwarding has its own door in processForwardFromMyName.
+        if (NovaCrashStickers.refuseToSend(currentAccount, document)) {
+            AndroidUtilities.runOnUIThread(() -> BulletinFactory.global()
+                    .createErrorBulletin(LocaleController.getString(R.string.NovaCrashStickerNotSent))
+                    .show());
             return;
         }
         if (DialogObject.isEncryptedDialog(peer)) {
