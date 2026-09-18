@@ -508,6 +508,29 @@ public class NovaGramSettingsActivity extends BaseFragment {
     }
 
     /**
+     * Every switch on this screen is bound here, and every bind states its
+     * subtitle - the absence of one included.
+     *
+     * TextCheckCell.setTextAndCheck only hides the subtitle and leaves its text
+     * in the cell, and the cell's accessibility node reads that text whether it
+     * is drawn or not. Two rows carry a subtitle, device binding and night
+     * silence, so a cell recycled from either went on announcing it under
+     * another switch: a screen reader heard "Запечатано этим устройством" on
+     * the updates switch, with nothing drawn there. An empty subtitle written
+     * first clears the text, and that first call leaves the switch where it
+     * stands, so the second one still animates a change the way it always did.
+     */
+    private static void bindSwitch(TextCheckCell cell, String text, String value,
+                                   boolean checked, boolean multiline, boolean divider) {
+        if (TextUtils.isEmpty(value)) {
+            cell.setTextAndValueAndCheck(text, "", cell.isChecked(), false, divider);
+            cell.setTextAndCheck(text, checked, divider);
+        } else {
+            cell.setTextAndValueAndCheck(text, value, checked, multiline, divider);
+        }
+    }
+
+    /**
      * The draft, which is what the picker starts from and what the row below
      * it applies. Whatever is in force is the answer until the picker has been
      * touched, so the row is never pressed with nothing behind it.
@@ -886,7 +909,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 // Two different answers, and the row shows both. The switch is
                 // what the owner asked for; the subtitle is what the binding is
                 // actually doing, which differs whenever the Keystore refuses.
-                ((TextCheckCell) holder.itemView).setTextAndValueAndCheck(
+                bindSwitch(
+                        (TextCheckCell) holder.itemView,
                         item.text.toString(),
                         LocaleController.getString(deviceBindingStateText()),
                         NovaDeviceLock.isEnabled(),
@@ -895,7 +919,8 @@ public class NovaGramSettingsActivity extends BaseFragment {
             } else if (item.viewType == VIEW_TYPE_CHECK && item.id == ID_NIGHT_SILENT) {
                 // The window belongs in a subtitle: on one line with the label
                 // it does not fit the row and gets cut off mid-way.
-                ((TextCheckCell) holder.itemView).setTextAndValueAndCheck(
+                bindSwitch(
+                        (TextCheckCell) holder.itemView,
                         item.text.toString(),
                         LocaleController.getString(R.string.NovaNightSilentHours),
                         NovaPrivacySettings.global(getContext()).isNightSilentEnabled(),
@@ -939,7 +964,7 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = item.id != ID_SCREENSHOTS
                             || NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION);
                 }
-                ((TextCheckCell) holder.itemView).setTextAndCheck(item.text.toString(), checked, divider);
+                bindSwitch((TextCheckCell) holder.itemView, item.text.toString(), null, checked, false, divider);
             } else if (item.viewType == VIEW_TYPE_ICON) {
                 // Named here, and not left to the branch below, which is the
                 // whole reason this row used to take the screen down: that one
