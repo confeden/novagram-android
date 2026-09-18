@@ -620,6 +620,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     }
 
     private void updateRows(boolean notify) {
+        final boolean hadRotation = rotationRow != -1;
+        final boolean hadRotationTimeout = rotationTimeoutRow != -1;
         rowCount = 0;
         useProxyRow = rowCount++;
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.currentProxy.settings.getType() != ProxySettings.Type.WEB && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
@@ -642,6 +644,15 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             useProxyShadowRow = -1;
         }
         connectionsHeaderRow = rowCount++;
+        // NovaGram: 12.10.2 hides the rotation rows while the current proxy is a
+        // WEB one, so picking a proxy from the list - or rotation picking one - now
+        // changes the row count on the updateRows(false) path, which never told
+        // the adapter. The next layout throws, DrawerLayoutContainer swallows it,
+        // the list is left "computing a layout" for good, and the first connection
+        // state change after that crashes the app in notifyDataSetChanged (G64).
+        // Such a change is announced in full instead.
+        final boolean rotationChanged = hadRotation != (rotationRow != -1)
+                || hadRotationTimeout != (rotationTimeoutRow != -1);
 
         if (notify) {
             proxyList.clear();
@@ -689,7 +700,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             boolean change = callsRow == -1;
             callsRow = rowCount++;
             callsDetailRow = rowCount++;
-            if (!notify && change) {
+            if (!notify && change && !rotationChanged) {
                 listAdapter.notifyItemChanged(proxyShadowRow);
                 listAdapter.notifyItemRangeInserted(proxyShadowRow + 1, 2);
             }
@@ -697,7 +708,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             boolean change = callsRow != -1;
             callsRow = -1;
             callsDetailRow = -1;
-            if (!notify && change) {
+            if (!notify && change && !rotationChanged) {
                 listAdapter.notifyItemChanged(proxyShadowRow);
                 listAdapter.notifyItemRangeRemoved(proxyShadowRow + 1, 2);
             }
@@ -708,7 +719,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             deleteAllRow = -1;
         }
         checkProxyList();
-        if (notify && listAdapter != null) {
+        if ((notify || rotationChanged) && listAdapter != null) {
             listAdapter.notifyDataSetChanged();
         }
     }
