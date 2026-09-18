@@ -16654,6 +16654,10 @@ public class MessagesController extends BaseController implements NotificationCe
         }
         getUserConfig().clearConfig();
         SharedPrefsHelper.cleanupAccount(currentAccount);
+        // NovaGram: the WEB proxy's page keeps a WebView profile of its own, one
+        // per installation, and upstream never clears it. Every logout does, as
+        // on the desktop (D17); the other accounts keep their connection.
+        org.telegram.proxy.WebProxyTransport.clearStorage();
 
         boolean shouldHandle = true;
         ArrayList<NotificationCenter.NotificationCenterDelegate> observers = getNotificationCenter().getObservers(NotificationCenter.appDidLogout);

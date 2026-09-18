@@ -776,7 +776,14 @@ public class ProxySettingsActivity extends BaseFragment {
             } else if (currentType == ProxySettings.Type.WEB) {
                 bottomCells[0].setVisibility(View.GONE);
                 bottomCells[1].setVisibility(View.VISIBLE);
-                bottomCells[1].setText(LocaleController.getString(R.string.UseProxyWebInfo));
+                // NovaGram: upstream's wording is fair about the page but silent
+                // about what the fork stops covering, which is the part a NovaGram
+                // user is entitled to know - the same text as the desktop's (D17).
+                // The decoy keeps upstream's, because this one names NovaGram (I4).
+                bottomCells[1].setText(LocaleController.getString(
+                        org.telegram.messenger.novagram.privacy.NovaDecoyState.isActive()
+                                ? R.string.UseProxyWebInfo
+                                : R.string.NovaWebProxyWarning));
                 ((View) inputFields[FIELD_SECRET].getParent()).setVisibility(View.VISIBLE);
                 ((View) inputFields[FIELD_PASSWORD].getParent()).setVisibility(View.GONE);
                 ((View) inputFields[FIELD_USER].getParent()).setVisibility(View.GONE);

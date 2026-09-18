@@ -17,6 +17,8 @@ import android.webkit.WebViewClient;
 import android.net.http.SslError;
 
 import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.Profile;
+import androidx.webkit.ProfileStore;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -25,6 +27,7 @@ import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 import org.telegram.ui.Components.ForegroundDetector;
 
 import java.io.InputStream;
@@ -94,6 +97,14 @@ public final class WebProxyTransport implements ForegroundDetector.Listener {
     private int outboundBytes;
 
     public static int start(String host, String secret) {
+        // NovaGram: the decoy promises that nothing of its own leaves the phone,
+        // and this transport would load a page from the proxy host in a hidden
+        // WebView. The gate sits here and in startConnectionCheck, the only two
+        // ways in, and not at the callers (I4). A refused start answers like an
+        // unusable proxy: port 0.
+        if (NovaDecoyState.isActive()) {
+            return 0;
+        }
         String normalized = normalizeHost(host);
         byte[] secretBytes = decodeSecret(secret);
         if (TextUtils.isEmpty(normalized) || secretBytes == null || !isSupported()) {
@@ -132,6 +143,10 @@ public final class WebProxyTransport implements ForegroundDetector.Listener {
     }
 
     public static int startConnectionCheck(String host, String secret, ReadyCallback readyCallback) {
+        // NovaGram: the second way in - see start().
+        if (NovaDecoyState.isActive()) {
+            return 0;
+        }
         String normalized = normalizeHost(host);
         byte[] secretBytes = decodeSecret(secret);
         if (TextUtils.isEmpty(normalized) || secretBytes == null || !isSupported()) {
@@ -165,6 +180,50 @@ public final class WebProxyTransport implements ForegroundDetector.Listener {
                 connectionTestInstance = null;
             }
         }
+    }
+
+    // NovaGram: the WebView profile the provider's page runs in (see createWebView).
+    private static final String PROFILE_NAME = "novagram_webproxy";
+
+    /**
+     * NovaGram: removes what the provider's page left behind - its cookies and
+     * web storage, and, when no WebView holds the profile open, the profile
+     * itself with its cache and network state. Called on every logout, the
+     * twin of the desktop's Transport::ClearStorage (D17). A running carrier is
+     * retired first, the way a failed page is: while a WEB proxy is still
+     * configured a fresh page comes back through the ordinary retry, starting
+     * from nothing, and the remaining accounts keep their connection.
+     */
+    public static void clearStorage() {
+        AndroidUtilities.runOnUIThread(() -> {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                return;
+            }
+            boolean inUse;
+            synchronized (staticLock) {
+                if (instance != null) {
+                    if (instance.webView != null) {
+                        instance.webView.clearCache(true);
+                    }
+                    instance.failCarrier();
+                }
+                inUse = instance != null || connectionTestInstance != null;
+            }
+            try {
+                ProfileStore store = ProfileStore.getInstance();
+                Profile profile = store.getProfile(PROFILE_NAME);
+                if (profile == null) {
+                    return;
+                }
+                profile.getCookieManager().removeAllCookies(null);
+                profile.getWebStorage().deleteAllData();
+                if (!inUse) {
+                    store.deleteProfile(PROFILE_NAME);
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        });
     }
 
     private ReadyCallback readyCallback;
@@ -380,6 +439,20 @@ public final class WebProxyTransport implements ForegroundDetector.Listener {
             FileLog.e(e);
             failCarrier();
             return;
+        }
+        // NovaGram: a profile of its own, set before the WebView does anything
+        // else. Without it the provider's page shares cookies, storage and cache
+        // with the in-app browser and every mini app, and clearing what the
+        // provider left behind would mean clearing those as well. On a WebView
+        // without profiles it stays in the shared one, and only the emergency
+        // wipe, which removes app_webview whole, reaches it there.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            try {
+                ProfileStore.getInstance().getOrCreateProfile(PROFILE_NAME);
+                WebViewCompat.setProfile(view, PROFILE_NAME);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
         webView = view;
         view.setBackgroundColor(Color.TRANSPARENT);

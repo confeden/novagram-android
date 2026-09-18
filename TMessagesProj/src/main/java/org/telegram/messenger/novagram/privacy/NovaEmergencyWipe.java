@@ -274,6 +274,13 @@ public final class NovaEmergencyWipe {
         if (parent != null) {
             deleteChildren(new File(parent, "shared_prefs"));
             deleteChildren(new File(parent, "databases"));
+            // Every WebView profile lives here, the default one and the WEB
+            // proxy's: cookies, local storage and IndexedDB of mini apps and
+            // of sites opened in the in-app browser, logins included, plus the
+            // proxy host's HSTS and connection records. The HTTP cache is under
+            // the cache directory and already goes above. The process exits
+            // right after the wipe, so nothing held in memory writes it back.
+            deleteChildren(new File(parent, "app_webview"));
         }
         deleteSavedMedia(context);
     }

@@ -4599,6 +4599,25 @@ public class AndroidUtilities {
             if (data != null) {
                 final ProxySettings proxySettings = ProxySettings.fromUri(data);
                 if (proxySettings != null && proxySettings.isValid()) {
+                    // NovaGram: a WEB proxy is not a route, it is code. Connecting
+                    // through one loads the provider's page inside the app and
+                    // relays every MTProto frame through its JavaScript, so a
+                    // tapped link - in a chat, in a channel, from any sender - must
+                    // not be able to offer it. The other types keep upstream's
+                    // confirmation sheet: they only move packets. Manual entry in
+                    // the proxy settings still works (D17). The decoy keeps the
+                    // stock sheet, because this text names NovaGram (I4); nothing
+                    // loads there anyway, WebProxyTransport refuses to start.
+                    if (proxySettings.getType() == ProxySettings.Type.WEB
+                            && !org.telegram.messenger.novagram.privacy.NovaDecoyState.isActive()) {
+                        if (invoked && activity != null && !activity.isFinishing()) {
+                            new AlertDialog.Builder(activity)
+                                .setMessage(getString(R.string.NovaWebProxyLinkRefused))
+                                .setPositiveButton(getString(R.string.OK), null)
+                                .show();
+                        }
+                        return true;
+                    }
                     if (invoked) showProxyAlert(activity, proxySettings);
                     return true;
                 }
