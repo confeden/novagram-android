@@ -5,7 +5,7 @@ buildscript {
         google()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.10.1'
+        classpath 'com.android.tools.build:gradle:8.13.2'
         classpath 'com.google.gms:google-services:4.3.15'
         // NovaGram: Huawei AGConnect and Firebase Crashlytics are not applied by
         // this fork - crash reporting is off and the Huawei flavour is not built -
@@ -30,6 +30,25 @@ subprojects {
         android {
             androidResources {
                 ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~:!optional:!licences:!*stmary*:!*eufb*'
+            }
+        }
+    }
+
+    if (project.projectDir.absolutePath.contains('/TMessagesProj_Modules/media/')) {
+        project.plugins.withId('com.android.library') {
+            project.android {
+                if (namespace == null) {
+                    def manifestFile = file("${project.projectDir}/src/main/AndroidManifest.xml")
+
+                    if (manifestFile.exists()) {
+                        def manifest = new XmlSlurper().parse(manifestFile)
+                        def manifestPackage = manifest.@package.text()
+
+                        if (manifestPackage) {
+                            namespace manifestPackage
+                        }
+                    }
+                }
             }
         }
     }

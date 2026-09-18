@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.telegram.build-app-plugin'
 
 repositories {
     mavenCentral()
@@ -41,6 +42,15 @@ android {
         coreLibraryDesugaringEnabled true
     }
 
+    androidResources {
+        noCompress += "pack"
+        // NovaGram: upstream keeps no translated resources at all - its own
+        // strings now come from the .pack assets. The fork's Russian lives in
+        // values-ru/novagram_*.xml, outside that pack, and would be stripped
+        // with everything else; English and Russian are what the fork ships.
+        localeFilters += ["zz", "ru"]
+    }
+
     signingConfigs {
         debug {
             storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
@@ -66,7 +76,7 @@ android {
             minifyEnabled false
             shrinkResources false
             multiDexEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro', '../TMessagesProj/proguard-rules-beta.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), '../TMessagesProj/proguard-rules.pro', '../TMessagesProj/proguard-rules-beta.pro'
             ndk.debugSymbolLevel = 'FULL'
         }
 
@@ -76,9 +86,11 @@ android {
             signingConfig signingConfigs.release
             applicationIdSuffix ".web"
             minifyEnabled true
+            // NovaGram: false, not upstream's true - D19. Resources resolved by
+            // name alone would be removed, and the prize is a couple of MB.
             shrinkResources false
             multiDexEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), '../TMessagesProj/proguard-rules.pro'
             ndk.debugSymbolLevel = 'FULL'
         }
 
@@ -87,9 +99,10 @@ android {
             jniDebuggable false
             signingConfig signingConfigs.release
             minifyEnabled true
+            // NovaGram: false, not upstream's true - see standalone above (D19).
             shrinkResources false
             multiDexEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), '../TMessagesProj/proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), '../TMessagesProj/proguard-rules.pro'
             ndk.debugSymbolLevel = 'FULL'
         }
     }

@@ -8,6 +8,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyContract;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
+import org.telegram.proxy.ProxySettings;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -757,16 +758,17 @@ public final class NovaDoh {
             if (!SharedConfig.isProxyEnabled()) {
                 return Proxy.NO_PROXY;
             }
-            SharedConfig.ProxyInfo info = SharedConfig.currentProxy;
+            SharedConfig.ProxyInfo current = SharedConfig.currentProxy;
+            ProxySettings info = current == null ? null : current.settings;
             if (info == null
-                    || info.address == null
-                    || info.address.length() == 0
-                    || (info.secret != null && info.secret.length() > 0)) {
-                // A secret means MTProto, which speaks Telegram's protocol and
-                // nothing else.
+                    || info.getAddress().length() == 0
+                    || info.getType() != ProxySettings.Type.SOCKS5) {
+                // MTProto speaks Telegram's protocol and nothing else, and a
+                // WEB proxy is a page that relays MTProto frames only - neither
+                // can carry an HTTPS request.
                 return Proxy.NO_PROXY;
             }
-            if (!looksLikeAddress(info.address)) {
+            if (!looksLikeAddress(info.getAddress())) {
                 // The proxy is named and its name is not known yet. Handing it
                 // over like this would have the system resolve it, which is the
                 // one thing this class exists to prevent — so this request goes
@@ -776,13 +778,13 @@ public final class NovaDoh {
                 // request fails and the client says so; the answer to that is
                 // to give the proxy by address, and then nothing needs
                 // resolving at all.
-                String known = cached(info.address.toLowerCase(Locale.US), TYPE_A).first();
+                String known = cached(info.getAddress().toLowerCase(Locale.US), TYPE_A).first();
                 if (known == null) {
                     return Proxy.NO_PROXY;
                 }
-                return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(known, info.port));
+                return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(known, info.getPort()));
             }
-            return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(info.address, info.port));
+            return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(info.getAddress(), info.getPort()));
         } catch (Throwable e) {
             FileLog.e(e);
             return Proxy.NO_PROXY;

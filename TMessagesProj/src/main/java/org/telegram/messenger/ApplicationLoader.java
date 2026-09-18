@@ -91,6 +91,24 @@ public class ApplicationLoader extends Application {
         super.attachBaseContext(base);
     }
 
+    // NovaGram: on API 31+ the media player opens a session with the platform
+    // MediaMetricsManager and tags every codec with it, so codecs, durations,
+    // errors and the network type of each playback - received voice messages and
+    // videos included - are reported outside the application's own data. It
+    // opens that session before it looks at usePlatformDiagnostics, so turning
+    // the flag off is not enough. Until 12.10.2 the fork patched the vendored
+    // ExoPlayer; media3 now lives in an upstream submodule the fork cannot commit
+    // to. The player asks the application context for the service and treats
+    // "none" as a device without one, so answering null here keeps every player
+    // out of the platform's metrics - this media3 and the next.
+    @Override
+    public Object getSystemService(@NonNull String name) {
+        if (Build.VERSION.SDK_INT >= 31 && Context.MEDIA_METRICS_SERVICE.equals(name)) {
+            return null;
+        }
+        return super.getSystemService(name);
+    }
+
     public static ILocationServiceProvider getLocationServiceProvider() {
         if (locationServiceProvider == null) {
             locationServiceProvider = applicationLoaderInstance.onCreateLocationServiceProvider();
