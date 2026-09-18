@@ -252,6 +252,8 @@
     <string name="NovaBotStoryFetchTitle">Скачать этот файл?</string>
     <string name="NovaBotStoryFetchRequest">**%1$s** хочет сделать историю из файла на **%2$s**. Загрузка — прямое соединение с этим узлом в обход прокси, так что он увидит настоящий IP-адрес.</string>
 
-    <string name="NovaWebProxyLinkRefused">NovaGram не устанавливает WEB-прокси по ссылке: прокси этого типа запускает внутри приложения веб-страницу поставщика. Если вы ему доверяете, добавьте прокси вручную в настройках прокси.</string>
+    <string name="NovaWebProxyLinkTitle">WEB-прокси</string>
+    <string name="NovaWebProxyLinkWarning">Ссылка добавляет WEB-прокси. Прокси этого типа запускает внутри приложения веб-страницу поставщика и пропускает через её JavaScript весь трафик Telegram. Защита DNS в NovaGram на него не распространяется. Добавляйте его, только если доверяете поставщику.</string>
+    <string name="NovaWebProxyLinkContinue">Продолжить</string>
     <string name="NovaWebProxyWarning">Прокси типа WEB запускает внутри приложения веб-страницу поставщика и пропускает через её JavaScript весь трафик Telegram. Защита DNS в NovaGram на него не распространяется: имена разрешает системный WebView, а не само приложение.\n\nУкажите имя узла без схемы и пути и 16-байтный секрет MTProxy. Нужен свежий Android System WebView; соединение надёжно держится, только пока приложение открыто.</string>
 </resources>
