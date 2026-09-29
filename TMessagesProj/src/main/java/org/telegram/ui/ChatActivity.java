@@ -13337,9 +13337,19 @@ public class ChatActivity extends BaseFragment implements
         AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity(), themeDelegate);
         builder.setTitle(LocaleController.getString(R.string.NovaEraseEvidence));
         builder.setMessage("");
+        // The button is built now and hidden until the queue is through: a
+        // button that would do nothing while it runs is a lie, and a window
+        // that ends with no button at all reads as stuck even though it is
+        // done and closes itself. It appears the moment the last message is
+        // gone, which is also when the window becomes dismissible.
+        builder.setPositiveButton(LocaleController.getString(R.string.Close), null);
         AlertDialog dialog = builder.create();
         dialog.setCanCancel(false);
         showDialog(dialog);
+        final View closeButton = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (closeButton != null) {
+            closeButton.setVisibility(View.GONE);
+        }
 
         final Runnable[] closer = new Runnable[1];
         final Runnable[] poll = new Runnable[1];
@@ -13359,6 +13369,9 @@ public class ChatActivity extends BaseFragment implements
                 // button: while the queue runs there is nothing to press that
                 // would stop it, and a button that does nothing is a lie.
                 dialog.setCanCancel(true);
+                if (closeButton != null) {
+                    closeButton.setVisibility(View.VISIBLE);
+                }
                 AndroidUtilities.runOnUIThread(closer[0], 10_000L);
             }
         };

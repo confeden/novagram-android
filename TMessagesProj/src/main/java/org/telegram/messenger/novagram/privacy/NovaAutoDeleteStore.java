@@ -588,6 +588,46 @@ public final class NovaAutoDeleteStore {
             }
         }
 
+        /**
+         * Removes every entry of this dialog whose message is in the set, in
+         * one pass. A deletion request carries up to a hundred messages, and
+         * removing them one at a time walked a queue that holds up to
+         * {@link #MAX_QUEUE_ENTRIES} once per message - on the UI thread, with
+         * the progress window open on top of it.
+         */
+        public void removeAll(long dialogId, java.util.Set<Integer> messageIds) {
+            if (messageIds == null || messageIds.isEmpty()) {
+                return;
+            }
+            int write = 0;
+            for (int read = 0, count = queue.size(); read < count; read++) {
+                Entry entry = queue.get(read);
+                if (entry.dialogId == dialogId
+                        && messageIds.contains(entry.messageId)) {
+                    continue;
+                }
+                if (write != read) {
+                    queue.set(write, entry);
+                }
+                write++;
+            }
+            while (queue.size() > write) {
+                queue.remove(queue.size() - 1);
+            }
+        }
+
+        /** Every queued entry of this dialog, by message id. One pass. */
+        public java.util.HashMap<Integer, Entry> index(long dialogId) {
+            java.util.HashMap<Integer, Entry> result = new java.util.HashMap<>();
+            for (int i = 0, count = queue.size(); i < count; i++) {
+                Entry entry = queue.get(i);
+                if (entry.dialogId == dialogId) {
+                    result.put(entry.messageId, entry);
+                }
+            }
+            return result;
+        }
+
         public int getRule(long dialogId) {
             Integer rule = rules.get(dialogId);
             return rule == null ? RULE_DEFAULT : rule;

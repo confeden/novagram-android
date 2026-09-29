@@ -592,6 +592,14 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         AndroidUtilities.runOnUIThread(() -> {
             int at = now();
             NovaAutoDeleteStore.Report report = state.startReport(dialogId);
+            // One pass over the queue instead of one per message. Erase
+            // evidence hands over a whole history at once, and the queue holds
+            // up to MAX_QUEUE_ENTRIES, so the old find-per-message walked
+            // millions of entries on the UI thread before the first request
+            // went out. Entries this loop adds go into the index too, so a
+            // repeated id is still recognised.
+            java.util.HashMap<Integer, NovaAutoDeleteStore.Entry> queued =
+                    state.index(dialogId);
             for (int i = 0, count = messages.size(); i < count; i++) {
                 TLRPC.Message message = messages.get(i);
                 if (message == null
@@ -601,7 +609,7 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
                     continue;
                 }
                 report.queued++;
-                NovaAutoDeleteStore.Entry existing = state.find(dialogId, message.id);
+                NovaAutoDeleteStore.Entry existing = queued.get(message.id);
                 if (existing != null) {
                     // Already waiting for its ordinary period: move it to now and
                     // mark it as this run's, so its outcome lands in the report
@@ -610,17 +618,20 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
                     existing.dueAt = at;
                     if ((existing.flags & NovaAutoDeleteStore.FLAG_ERASE) == 0) {
                         state.remove(dialogId, message.id);
-                        state.add(new NovaAutoDeleteStore.Entry(
-                                existing.dialogId,
-                                existing.messageId,
-                                existing.date,
-                                at,
-                                existing.stage,
-                                existing.flags | NovaAutoDeleteStore.FLAG_ERASE));
+                        NovaAutoDeleteStore.Entry replacement =
+                                new NovaAutoDeleteStore.Entry(
+                                        existing.dialogId,
+                                        existing.messageId,
+                                        existing.date,
+                                        at,
+                                        existing.stage,
+                                        existing.flags | NovaAutoDeleteStore.FLAG_ERASE);
+                        state.add(replacement);
+                        queued.put(message.id, replacement);
                     }
                     continue;
                 }
-                enqueue(new NovaAutoDeleteStore.Entry(
+                NovaAutoDeleteStore.Entry fresh = new NovaAutoDeleteStore.Entry(
                         dialogId,
                         message.id,
                         message.date > 0 ? message.date : at,
@@ -628,7 +639,9 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
                         NovaAutoDeleteStore.STAGE_REPLACE,
                         (isTextEditable(message) ? NovaAutoDeleteStore.FLAG_EDITABLE : 0)
                                 | NovaAutoDeleteStore.FLAG_ERASE
-                ));
+                );
+                enqueue(fresh, false);
+                queued.put(message.id, fresh);
             }
             if (report.queued == 0) {
                 state.removeReport(dialogId);
@@ -704,6 +717,17 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
     }
 
     private void enqueue(NovaAutoDeleteStore.Entry entry) {
+        enqueue(entry, true);
+    }
+
+    /**
+     * @param reschedule false while a caller adds many entries at once and
+     *                   will save and reschedule itself afterwards. schedule()
+     *                   walks the queue looking for the earliest deadline, so
+     *                   calling it per message made adding a history O(n*q)
+     *                   before a single request went out.
+     */
+    private void enqueue(NovaAutoDeleteStore.Entry entry, boolean reschedule) {
         if (wiped) {
             return;
         }
@@ -712,6 +736,9 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             return;
         }
         if (!addEntry(entry)) {
+            return;
+        }
+        if (!reschedule) {
             return;
         }
         scheduleSave();
@@ -1024,14 +1051,25 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
             FileLog.e(e);
             outcome = Outcome.SKIPPED;
         }
+        // Dropped immediately, like the single-message path: deleteMessages
+        // persists its own pending task, so a failed request is retried by the
+        // client and not by this queue. All hundred leave in one pass: dropping
+        // them one at a time walked the whole queue twice per message - once to
+        // remove it, once to ask whether the run had finished - and posted a
+        // progress notification each time, which is what made the window crawl
+        // at the end of a long run instead of finishing it.
+        java.util.HashSet<Integer> dropped = new java.util.HashSet<>(entries.size());
         for (int i = 0, count = entries.size(); i < count; i++) {
             NovaAutoDeleteStore.Entry entry = entries.get(i);
             count(entry, outcome);
-            // Dropped immediately, like the single-message path: deleteMessages
-            // persists its own pending task, so a failed request is retried by
-            // the client and not by this queue.
-            drop(entry);
+            busy.remove(entry);
+            dropped.add(entry.messageId);
         }
+        state.removeAll(dialogId, dropped);
+        scheduleSave();
+        NotificationCenter.getInstance(currentAccount)
+                .postNotificationName(NotificationCenter.novaEraseProgress, dialogId);
+        checkReportFinished(dialogId);
     }
 
     private void erase(NovaAutoDeleteStore.Entry entry) {
