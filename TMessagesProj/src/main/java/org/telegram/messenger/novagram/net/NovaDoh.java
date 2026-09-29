@@ -8,7 +8,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.novagram.privacy.NovaPrivacyContract;
 import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
-import org.telegram.proxy.ProxySettings;
+import org.telegram.utils.proxy.ProxySettings;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;

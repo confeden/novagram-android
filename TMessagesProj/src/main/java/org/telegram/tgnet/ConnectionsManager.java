@@ -49,9 +49,9 @@ import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.net.NovaDoh;
 import org.telegram.messenger.novagram.privacy.NovaDecoyServer;
 import org.telegram.messenger.novagram.privacy.NovaDecoyState;
-import org.telegram.proxy.WebProxyConnectionTester;
-import org.telegram.proxy.WebProxyTransport;
-import org.telegram.proxy.ProxySettings;
+import org.telegram.utils.proxy.WebProxyConnectionTester;
+import org.telegram.utils.proxy.WebProxyTransport;
+import org.telegram.utils.proxy.ProxySettings;
 import org.telegram.ui.Components.VideoPlayer;
 import org.telegram.ui.LoginActivity;
 
@@ -83,8 +83,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLException;
-
-@OptIn(markerClass = UnstableApi.class)
 public class ConnectionsManager extends BaseController {
 
     public final static int ConnectionTypeGeneric = 1;
