@@ -71,6 +71,14 @@ public final class NovaDeviceLock {
      */
     private static boolean secretUnavailable;
 
+    /**
+     * What the last refusal was, kept with {@link #secretUnavailable} and
+     * dropped with it. Tells a Keystore that will answer later from a key that
+     * a system update left unusable for good (see {@link NovaKeystoreFailure}),
+     * and names the failure on the blocked screen.
+     */
+    private static Throwable lastRefusal;
+
     /** Set when the network library would not take the key. */
     private static boolean nativeKeyFailed;
 
@@ -174,6 +182,39 @@ public final class NovaDeviceLock {
             // for want of an answer never gets here, so the screen that offers
             // the irreversible start over is never shown on that basis.
             return Boolean.TRUE.equals(blocked) && !secretUnavailable && !nativeKeyFailed;
+        }
+    }
+
+    /**
+     * Blocked for want of an answer, and the Keystore's refusal says the key
+     * behind the binding is never going to work again - what a system update
+     * leaves when it cannot carry the key over. Not foreign: the data is this
+     * phone's own. But no retry opens it, so the screen may say so and offer
+     * the start over the reinstall used to be the only way to.
+     */
+    public static boolean isKeyLostForGood() {
+        synchronized (LOCK) {
+            return secretUnavailable && NovaKeystoreFailure.isFinal(lastRefusal);
+        }
+    }
+
+    /**
+     * The refusal was this build failing to parse its own binding file, not
+     * the Keystore. That is a newer build's format - the downgrade trap of
+     * G39-G40 - far more often than damage, and the data opens again with an
+     * update. The start over is never offered on it: it would destroy what
+     * the right build can still read.
+     */
+    public static boolean isRefusalUnreadableFile() {
+        synchronized (LOCK) {
+            return lastRefusal instanceof UnreadableBindingException;
+        }
+    }
+
+    /** The last refusal in one line, for the owner to report. Empty when none. */
+    public static String refusalDetail() {
+        synchronized (LOCK) {
+            return NovaKeystoreFailure.describe(lastRefusal);
         }
     }
 
@@ -408,6 +449,7 @@ public final class NovaDeviceLock {
                 secretResolved = false;
             }
             secretUnavailable = false;
+            lastRefusal = null;
             nativeKeyFailed = false;
             configWasSealed = null;
         }
@@ -492,6 +534,7 @@ public final class NovaDeviceLock {
             cachedSecret = null;
             secretResolved = false;
             secretUnavailable = false;
+            lastRefusal = null;
             nativeKeyFailed = false;
             nativeConfigUnusable = false;
             configWasSealed = null;
@@ -523,6 +566,7 @@ public final class NovaDeviceLock {
                 return null;
             }
             secretUnavailable = false;
+            lastRefusal = null;
             byte[] secret = readSecret();
             if (secret == null && secretUnavailable) {
                 // The Keystore refused, which is not the same as "there is
@@ -616,12 +660,14 @@ public final class NovaDeviceLock {
             // good, and neither of them is evidence of another device.
             if (stream.readInt() != FILE_MAGIC || stream.readInt() != FILE_VERSION) {
                 secretUnavailable = true;
+                lastRefusal = new UnreadableBindingException("unknown format");
                 FileLog.e("NovaGram device lock: unreadable binding file");
                 return null;
             }
             int ivLength = stream.readInt();
             if (ivLength != GCM_IV_BYTES) {
                 secretUnavailable = true;
+                lastRefusal = new UnreadableBindingException("bad nonce length");
                 return null;
             }
             byte[] iv = new byte[ivLength];
@@ -629,6 +675,7 @@ public final class NovaDeviceLock {
             int sealedLength = stream.readInt();
             if (sealedLength <= 16 || sealedLength > MAX_SEALED_BYTES) {
                 secretUnavailable = true;
+                lastRefusal = new UnreadableBindingException("bad sealed length");
                 return null;
             }
             byte[] sealed = new byte[sealedLength];
@@ -643,6 +690,7 @@ public final class NovaDeviceLock {
                 // and while a screen lock is being changed - so it is reported
                 // as a refusal, which nothing caches and everything retries.
                 secretUnavailable = true;
+                lastRefusal = e;
                 FileLog.e(e);
                 return null;
             }
@@ -675,8 +723,12 @@ public final class NovaDeviceLock {
             // system unfreezes a cached process. Falling through here without
             // the flag latched a **certain** foreign verdict on a phone having
             // a bad minute, and the screen that verdict opens offers one
-            // button, which wipes.
+            // button, which wipes. The one refusal that is known to be final -
+            // a key a system update left unusable, which fails right here in
+            // `cipher.init` - is told apart by NovaKeystoreFailure, never by
+            // guessing from this catch.
             secretUnavailable = true;
+            lastRefusal = e;
             FileLog.e(e);
             return null;
         }
@@ -729,11 +781,19 @@ public final class NovaDeviceLock {
             // Reported, not swallowed. Binding was asked for and did not
             // happen; the caller must be able to say so and to come back later.
             secretUnavailable = true;
+            lastRefusal = e;
             FileLog.e(e);
             return null;
         } finally {
             NovaSecretWiper.wipe(sealed);
             NovaSecretWiper.wipe(iv);
+        }
+    }
+
+    /** A binding file this build cannot parse. See {@link #isRefusalUnreadableFile()}. */
+    private static final class UnreadableBindingException extends IOException {
+        UnreadableBindingException(String what) {
+            super("binding file: " + what);
         }
     }
 

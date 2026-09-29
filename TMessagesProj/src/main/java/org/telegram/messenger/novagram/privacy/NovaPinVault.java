@@ -70,6 +70,13 @@ public final class NovaPinVault {
             try (LockedFile ignored = lock()) {
                 boolean fileExists = stateFile.isFile();
                 boolean keyExists = NovaPinKeyStore.containsKey();
+                if (fileExists && !keyExists) {
+                    // Ask for the key, not for its name, before calling a
+                    // state corrupt: the listing answers false for any error
+                    // reading the entry, and the verdict that follows offers
+                    // the owner nothing but a wipe (G68, P39).
+                    keyExists = NovaPinKeyStore.hasUsableKey();
+                }
                 if (!fileExists && !keyExists) {
                     return new VaultInspection(VaultState.NOT_ENROLLED, 0L, null);
                 }
@@ -566,8 +573,8 @@ public final class NovaPinVault {
             }
             NovaPinKeyStore.ProtectionLevel storedProtectionLevel =
                     NovaPinKeyStore.ProtectionLevel.fromStorageId(input.readInt());
-            if (storedProtectionLevel == NovaPinKeyStore.ProtectionLevel.UNKNOWN
-                    || storedProtectionLevel != actualProtectionLevel) {
+            if (!NovaPinKeyStore.ProtectionLevel.matchesStored(
+                    storedProtectionLevel, actualProtectionLevel)) {
                 throw new CorruptStateException("PIN key protection level changed");
             }
             int failedAttempts = input.readInt();

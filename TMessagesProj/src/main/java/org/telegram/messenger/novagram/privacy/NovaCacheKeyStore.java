@@ -27,17 +27,15 @@ public final class NovaCacheKeyStore {
         KeyStore keyStore = loadKeyStore();
         SecretKey existing = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
         if (existing != null) {
-            KeyMaterial material = inspect(existing, false);
+            KeyMaterial material = inspect(existing);
             requireAcceptable(material, acceptSoftwareProtection, false);
             return material;
         }
 
         SecretKey generated = null;
-        boolean requestedStrongBox = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 generated = generate(true);
-                requestedStrongBox = true;
             } catch (StrongBoxUnavailableException ignored) {
                 deleteQuietly();
             } catch (GeneralSecurityException | RuntimeException ignored) {
@@ -48,7 +46,7 @@ public final class NovaCacheKeyStore {
             generated = generate(false);
         }
 
-        KeyMaterial material = inspect(generated, requestedStrongBox);
+        KeyMaterial material = inspect(generated);
         try {
             requireAcceptable(material, acceptSoftwareProtection, true);
             return material;
@@ -65,7 +63,7 @@ public final class NovaCacheKeyStore {
         if (key == null) {
             throw new GeneralSecurityException("NovaGram cache KEK is missing");
         }
-        KeyMaterial material = inspect(key, false);
+        KeyMaterial material = inspect(key);
         if (material.protectionLevel == ProtectionLevel.UNKNOWN) {
             throw new GeneralSecurityException("Unknown NovaGram cache KEK protection level");
         }
@@ -110,7 +108,7 @@ public final class NovaCacheKeyStore {
         return generator.generateKey();
     }
 
-    private static KeyMaterial inspect(SecretKey key, boolean requestedStrongBox)
+    private static KeyMaterial inspect(SecretKey key)
             throws GeneralSecurityException {
         SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), PROVIDER);
         KeyInfo info = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
@@ -133,10 +131,16 @@ public final class NovaCacheKeyStore {
                     level = ProtectionLevel.UNKNOWN;
                     break;
             }
+            // Below API 31 there is nothing here that tells a StrongBox key
+            // from a TEE one: `KeyInfo` answers `isInsideSecureHardware()` and
+            // says no more. Recording what was *asked for* instead of what was
+            // observed is what made `create()` write STRONGBOX and the next
+            // `getExisting()` read TRUSTED_ENVIRONMENT for the same key, which
+            // the vault reports as a changed protection level - a corrupt
+            // state the owner can only answer by wiping, and starting over
+            // writes the same mismatch again (G74).
         } else if (info.isInsideSecureHardware()) {
-            level = requestedStrongBox
-                    ? ProtectionLevel.STRONGBOX
-                    : ProtectionLevel.TRUSTED_ENVIRONMENT;
+            level = ProtectionLevel.TRUSTED_ENVIRONMENT;
         } else {
             level = ProtectionLevel.SOFTWARE;
         }

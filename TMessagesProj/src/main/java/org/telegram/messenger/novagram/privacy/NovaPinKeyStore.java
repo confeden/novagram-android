@@ -27,13 +27,31 @@ public final class NovaPinKeyStore {
         return keyStore.containsAlias(KEY_ALIAS);
     }
 
+    /**
+     * Whether the key can be fetched, not merely listed.
+     *
+     * <p>`containsAlias` answers false for every failure to read the entry and
+     * not only for a key that is not there (G68), and "the file is here, the
+     * key is not" is reported to the owner as a corrupt vault whose only offer
+     * is starting over. Right after the package is replaced the Keystore has
+     * been seen to answer exactly that for a moment. Asking for the key itself
+     * is the cheaper and the truer question (P39).</p>
+     */
+    public static boolean hasUsableKey() {
+        try {
+            return loadKeyStore().getKey(KEY_ALIAS, null) != null;
+        } catch (GeneralSecurityException | RuntimeException e) {
+            return false;
+        }
+    }
+
     public static KeyMaterial getExisting() throws GeneralSecurityException {
         KeyStore keyStore = loadKeyStore();
         SecretKey key = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
         if (key == null) {
             throw new GeneralSecurityException("NovaGram PIN key is missing");
         }
-        return new KeyMaterial(key, inspectSecurityLevel(key, false));
+        return new KeyMaterial(key, inspectSecurityLevel(key));
     }
 
     public static KeyMaterial create() throws GeneralSecurityException {
@@ -45,7 +63,7 @@ public final class NovaPinKeyStore {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 SecretKey key = generate(true);
-                return new KeyMaterial(key, inspectSecurityLevel(key, true));
+                return new KeyMaterial(key, inspectSecurityLevel(key));
             } catch (StrongBoxUnavailableException ignored) {
                 deleteQuietly();
             } catch (GeneralSecurityException | RuntimeException ignored) {
@@ -54,7 +72,7 @@ public final class NovaPinKeyStore {
         }
 
         SecretKey key = generate(false);
-        return new KeyMaterial(key, inspectSecurityLevel(key, false));
+        return new KeyMaterial(key, inspectSecurityLevel(key));
     }
 
     public static void delete() throws GeneralSecurityException {
@@ -82,7 +100,7 @@ public final class NovaPinKeyStore {
         return generator.generateKey();
     }
 
-    private static ProtectionLevel inspectSecurityLevel(SecretKey key, boolean requestedStrongBox)
+    private static ProtectionLevel inspectSecurityLevel(SecretKey key)
             throws GeneralSecurityException {
         SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), PROVIDER);
         KeyInfo info = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
@@ -100,10 +118,16 @@ public final class NovaPinKeyStore {
                     return ProtectionLevel.UNKNOWN;
             }
         }
+        // Below API 31 there is nothing here that tells a StrongBox key
+        // from a TEE one: `KeyInfo` answers `isInsideSecureHardware()` and
+        // says no more. Recording what was *asked for* instead of what was
+        // observed is what made `create()` write STRONGBOX and the next
+        // `getExisting()` read TRUSTED_ENVIRONMENT for the same key, which
+        // the vault reports as a changed protection level - a corrupt
+        // state the owner can only answer by wiping, and starting over
+        // writes the same mismatch again (G74).
         if (info.isInsideSecureHardware()) {
-            return requestedStrongBox
-                    ? ProtectionLevel.STRONGBOX
-                    : ProtectionLevel.TRUSTED_ENVIRONMENT;
+            return ProtectionLevel.TRUSTED_ENVIRONMENT;
         }
         return ProtectionLevel.SOFTWARE;
     }
@@ -146,6 +170,29 @@ public final class NovaPinKeyStore {
 
         public boolean isHardwareBacked() {
             return hardwareBacked;
+        }
+
+        /**
+         * Whether a level read out of a sealed state may still be believed of
+         * the key as it reports itself now.
+         *
+         * <p>What this check is for is a key that has lost its hardware: a
+         * state sealed by a key in secure hardware must not be opened by one
+         * the platform now keeps in software. That question is answered here.
+         * Which secure element holds it is not: below API 31 the platform will
+         * not say, so the fork used to record what it had *asked* for, and the
+         * same key then read back as a different level - which was reported as
+         * a changed protection level, i.e. a corrupt vault offering a wipe, on
+         * every API 28 device (G74). Keeping the two apart above 31 would only
+         * move the same brick to the first OS upgrade across that line, and a
+         * key does not travel between secure elements on its own, so the
+         * distinction buys no detection and costs the whole feature.</p>
+         */
+        public static boolean matchesStored(ProtectionLevel stored, ProtectionLevel actual) {
+            if (stored == UNKNOWN || actual == UNKNOWN) {
+                return false;
+            }
+            return stored == actual || (stored.hardwareBacked && actual.hardwareBacked);
         }
 
         public static ProtectionLevel fromStorageId(int id) {

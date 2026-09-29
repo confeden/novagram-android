@@ -65,6 +65,40 @@ public final class NovaPrivacySettings {
     private final SharedPreferences globalPreferences;
     private final SharedPreferences accountPreferences;
 
+    /**
+     * Drops this slot's per-account file when the account signs out.
+     *
+     * <p>The file is tagged with the account that owns it, which is what keeps
+     * the next account in the same slot from inheriting anything - but the tag
+     * is that account's id, and after a logout it was one of only two things
+     * left on the device naming who had been signed in here, upstream's own
+     * state included (G73). What it holds is written again from defaults at
+     * the next sign-in.</p>
+     */
+    public static void clearAccount(Context context, int account) {
+        if (context == null || account < 0) {
+            return;
+        }
+        Context applicationContext = context.getApplicationContext();
+        if (applicationContext == null) {
+            applicationContext = context;
+        }
+        String name = ACCOUNT_PREFERENCES_PREFIX + account;
+        try {
+            applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
+                    .edit()
+                    .clear()
+                    .commit();
+        } catch (Throwable ignored) {
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            try {
+                applicationContext.deleteSharedPreferences(name);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     public static NovaPrivacySettings global(Context context) {
         return new NovaPrivacySettings(context, null);
     }

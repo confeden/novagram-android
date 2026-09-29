@@ -204,12 +204,12 @@ public final class NovaCrashStickers {
      * "neutralised" — a false accusation about a file Telegram itself supplied.
      *
      * <p>The line is who chose the file. This guard exists against a document
-     * <em>another user sends</em>, and only a real set — one with an id or a
-     * short name — can be sent from. Everything the server hands out from its
-     * own configuration carries one of the special set types or no set at all,
-     * and none of it is content anybody picked to send here. A custom emoji is
-     * refused as a sticker for the same reason and by the owner's rule: emoji
-     * are not checked, stickers are.</p>
+     * <em>another user sends</em>. Everything the server hands out from its own
+     * configuration names one of its own set types, and none of it is content
+     * anybody picked to send here. A custom emoji is refused as a sticker for
+     * the same reason and by the owner's rule: emoji are not checked, stickers
+     * are. Anything else — including a set named as empty, which is what a
+     * sender reaches for to be left alone — is judged.</p>
      */
     private static boolean isSticker(TLRPC.Document document) {
         if (document.attributes == null) {
@@ -224,9 +224,24 @@ public final class NovaCrashStickers {
                 sticker = (TLRPC.TL_documentAttributeSticker) attribute;
             }
         }
-        return sticker != null
-                && (sticker.stickerset instanceof TLRPC.TL_inputStickerSetID
-                        || sticker.stickerset instanceof TLRPC.TL_inputStickerSetShortName);
+        if (sticker == null) {
+            return false;
+        }
+        // Named the other way round on purpose. Listing the two shapes a real
+        // set takes left everything else unjudged, and "everything else"
+        // includes TL_inputStickerSetEmpty - which a sender only has to name
+        // to walk past the guard entirely. Refusing the server's own sets by
+        // name keeps the narrowing this was added for, and a shape upstream
+        // adds later is treated as sender-chosen, which is the safe side.
+        final TLRPC.InputStickerSet set = sticker.stickerset;
+        return !(set instanceof TLRPC.TL_inputStickerSetDice)
+                && !(set instanceof TLRPC.TL_inputStickerSetAnimatedEmoji)
+                && !(set instanceof TLRPC.TL_inputStickerSetEmojiGenericAnimations)
+                && !(set instanceof TLRPC.TL_inputStickerSetEmojiDefaultStatuses)
+                && !(set instanceof TLRPC.TL_inputStickerSetEmojiChannelDefaultStatuses)
+                && !(set instanceof TLRPC.TL_inputStickerSetEmojiDefaultTopicIcons)
+                && !(set instanceof TLRPC.TL_inputStickerSetPremiumGifts)
+                && !(set instanceof TLRPC.TL_inputStickerSetTonGifts);
     }
 
     /**
@@ -322,6 +337,32 @@ public final class NovaCrashStickers {
      * hid whole packs behind "Краш-стикер (обезврежен)". Both shapes are read
      * now, and the one that never actually arrives here is the gzip.</p>
      */
+    /**
+     * How many leading bytes the Lottie reader throws away before it parses.
+     * The four shapes it knows, in its own order: UTF-32 either way round,
+     * UTF-16 either way round, UTF-8. Kept in step with the desktop twin
+     * ({@code BomSkip} in {@code nova_crash_stickers.cpp}) and with the reader
+     * itself; the guard has to judge exactly the bytes the decoder will judge.
+     */
+    private static int bomSkip(byte[] data) {
+        if (data.length < 4) {
+            return 0;
+        }
+        final int b0 = data[0] & 0xFF;
+        final int b1 = data[1] & 0xFF;
+        final int b2 = data[2] & 0xFF;
+        final int b3 = data[3] & 0xFF;
+        if ((b0 == 0x00 && b1 == 0x00 && b2 == 0xFE && b3 == 0xFF)
+                || (b0 == 0xFF && b1 == 0xFE && b2 == 0x00 && b3 == 0x00)) {
+            return 4;
+        } else if ((b0 == 0xFE && b1 == 0xFF) || (b0 == 0xFF && b1 == 0xFE)) {
+            return 2;
+        } else if (b0 == 0xEF && b1 == 0xBB && b2 == 0xBF) {
+            return 3;
+        }
+        return 0;
+    }
+
     private static Unpacked unpack(File file) {
         final boolean gzip = gzipped(file);
         try (InputStream stream = gzip
@@ -336,7 +377,17 @@ public final class NovaCrashStickers {
                 }
                 out.write(buffer, 0, read);
             }
-            final String json = out.toString("UTF-8");
+            final byte[] raw = out.toByteArray();
+            // From the same offset the decoder starts at, never from zero. The
+            // Lottie reader throws a byte order mark away and parses what
+            // follows; this used to look at the mark, decide the file was not
+            // the object it expected, and answer "not judged" - so three bytes
+            // in front of an ordinary bomb turned the whole guard off, and the
+            // verdict was then remembered. The bytes are not converted, only
+            // skipped, which is what the reader does too.
+            final int skip = bomSkip(raw);
+            final String json = new String(
+                    raw, skip, raw.length - skip, "UTF-8");
             // Whatever it is, it has to look like the object rlottie will be
             // handed. Anything else is not judged rather than accused.
             return json.trim().startsWith("{")

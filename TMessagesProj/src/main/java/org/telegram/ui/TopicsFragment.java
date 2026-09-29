@@ -2829,6 +2829,22 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
                 recyclerListView.setItemAnimator(animated ? itemAnimator : null);
             }
 
+            // NovaGram: a room list that was at its top stays at its top. The
+            // diff below reports moves and insertions by identity, and the
+            // layout manager keeps its first visible row on screen wherever
+            // that row moves. When a rebuild puts that row further down - the
+            // order briefly differs, or rooms arrive above it - the whole view
+            // follows it, down to the end of the list, and the rooms above it
+            // sit hidden under the header until the list is pulled. Seen on a
+            // device right after a connection status change while the rooms of
+            // a large group were open. Upstream guards this for one caller
+            // only (UPDATE_MASK_SELECT_DIALOG below); every rebuild comes
+            // through here. A pending scroll is left alone: hiding the general
+            // room sets one just before calling this.
+            final boolean wasOnTop = recyclerListView != null && layoutManager != null
+                && oldCount > 0 && !layoutManager.hasPendingScrollPosition()
+                && !recyclerListView.canScrollVertically(-1);
+
             if (adapter != null) {
                 adapter.setItems(oldItems, forumTopics);
             }
@@ -2836,6 +2852,8 @@ public class TopicsFragment extends BaseFragment implements NotificationCenter.N
             if ((scrollToTop || oldCount == 0) && layoutManager != null) {
                 layoutManager.scrollToPositionWithOffset(0, 0);
                 scrollToTop = false;
+            } else if (wasOnTop) {
+                layoutManager.scrollToPosition(0);
             }
         }
 

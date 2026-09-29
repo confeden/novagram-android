@@ -33,6 +33,17 @@ public final class NovaScreenshotPolicy {
         if (context == null) {
             return true;
         }
+        if (NovaDecoyState.isActive(context)) {
+            // I4, and the loudest case of it: the disguise is documented as an
+            // ordinary-looking Telegram, and an ordinary Telegram lets the
+            // screen be captured. Refusing a screenshot - and blanking the
+            // recents snapshot - is a behaviour stock has only behind a
+            // passcode, so it answers the one question the decoy exists to
+            // leave unanswered. The wipe takes the owner's own switch with it,
+            // so the decoy would otherwise run on the default, which is on
+            // (G75).
+            return false;
+        }
         NovaPrivacySettings settings = NovaPrivacySettings.global(context);
         if (!settings.isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION)) {
             return false;
@@ -48,6 +59,9 @@ public final class NovaScreenshotPolicy {
     ) {
         if (context == null) {
             return true;
+        }
+        if (NovaDecoyState.isActive(context)) {
+            return false;
         }
         NovaPrivacySettings settings = NovaPrivacySettings.global(context);
         if (!settings.isFeatureEnabled(NovaPrivacyFeature.SCREENSHOT_PROTECTION)) {

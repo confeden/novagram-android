@@ -130,8 +130,19 @@ public final class NovaPinGateActivity extends Activity {
     private char[] pendingSoftwarePin;
     private int inputLength;
     private Mode mode;
+    private boolean inspectionRetried;
     private boolean busy;
     private long countdownDeadline;
+
+    /**
+     * Retries on a dead-end screen that came back with the same failure. The
+     * first failure can be a phone having a bad minute; one that survived a
+     * deliberate retry is what a key lost to a system update looks like, and
+     * from then on the start over is offered next to the retry, so that the
+     * reinstall stops being the only way out.
+     */
+    private int deviceRetriesFailed;
+    private int vaultFailuresShown;
 
     private final Runnable countdown = new Runnable() {
         @Override
@@ -457,15 +468,39 @@ public final class NovaPinGateActivity extends Activity {
                         }
                         break;
                     case CORRUPT:
-                        showFatal(R.string.NovaPinCorruptState);
+                        if (!retryInspection()) {
+                            showFatal(R.string.NovaPinCorruptState);
+                        }
                         break;
                     case UNAVAILABLE:
                     default:
-                        showFatal(R.string.NovaPinStorageUnavailable);
+                        if (!retryInspection()) {
+                            showFatal(R.string.NovaPinStorageUnavailable);
+                        }
                         break;
                 }
             });
         });
+    }
+
+    /**
+     * One silent second look before the screen that offers to start over.
+     *
+     * <p>Both verdicts that land here are worth doubting once. Right after the
+     * package is replaced the Keystore has answered as though the key were
+     * gone, and the screen that follows tells the owner the protected state is
+     * missing or damaged and offers the only cure it has - losing the local
+     * data. A retry costs half a second. The manual button stays for
+     * everything a retry does not fix (P39).</p>
+     */
+    private boolean retryInspection() {
+        if (inspectionRetried) {
+            return false;
+        }
+        inspectionRetried = true;
+        setBusy(true);
+        AndroidUtilities.runOnUIThread(this::inspectVault, 600L);
+        return true;
     }
 
     private void showFirstEnrollment() {
@@ -667,20 +702,84 @@ public final class NovaPinGateActivity extends Activity {
         if (!NovaDeviceLock.isForeignCertain()) {
             // The data is not being called foreign - the device just could not
             // say whether the key that opens it is here. Nothing is started
-            // over that, but neither is the owner offered the one irreversible
-            // way out on the strength of a Keystore that did not answer.
-            titleView.setText(R.string.NovaDeviceUnknownTitle);
-            descriptionView.setText(R.string.NovaDeviceUnknownDescription);
-            actionPanel.addView(
-                    actionButton(R.string.NovaDeviceUnknownRetry, this::retryDeviceCheck),
-                    matchWrap(0));
+            // over on the strength of that alone. But a Keystore that says the
+            // key will never work again, or a refusal that survived a retry,
+            // is what a system update that could not carry the key over leaves
+            // behind, and there the only other way out was a reinstall. The
+            // start over offered then is no bypass: it destroys and reveals
+            // nothing, exactly as uninstalling does (P35).
+            if (NovaDeviceLock.isKeyLostForGood()) {
+                titleView.setText(R.string.NovaDeviceKeyLostTitle);
+                descriptionView.setText(R.string.NovaDeviceKeyLostDescription);
+                actionPanel.addView(
+                        actionButton(R.string.NovaDeviceChangedReset,
+                                () -> confirmDeviceReset(R.string.NovaDeviceStartOverConfirm)),
+                        matchWrap(0));
+                actionPanel.addView(
+                        linkButton(R.string.NovaDeviceUnknownRetry, this::retryDeviceCheck),
+                        matchWrap(0));
+            } else {
+                titleView.setText(R.string.NovaDeviceUnknownTitle);
+                // Not on a binding file this build cannot parse: that is an
+                // older build over a newer one's data, which an update opens.
+                boolean offerStartOver = deviceRetriesFailed > 0
+                        && !NovaDeviceLock.isRefusalUnreadableFile();
+                if (offerStartOver) {
+                    descriptionView.setText(getString(R.string.NovaDeviceUnknownDescription)
+                            + "\n\n" + getString(R.string.NovaDeviceUnknownPersists));
+                } else {
+                    descriptionView.setText(R.string.NovaDeviceUnknownDescription);
+                }
+                actionPanel.addView(
+                        actionButton(R.string.NovaDeviceUnknownRetry, this::retryDeviceCheck),
+                        matchWrap(0));
+                if (offerStartOver) {
+                    actionPanel.addView(
+                            linkButton(R.string.NovaDeviceChangedReset,
+                                    () -> confirmDeviceReset(R.string.NovaDeviceStartOverConfirm)),
+                            matchWrap(0));
+                }
+            }
+            addFailureDetail(NovaDeviceLock.refusalDetail());
             return;
         }
         titleView.setText(R.string.NovaDeviceChangedTitle);
         descriptionView.setText(R.string.NovaDeviceChangedDescription);
         actionPanel.addView(
-                actionButton(R.string.NovaDeviceChangedReset, this::confirmDeviceReset),
+                actionButton(R.string.NovaDeviceChangedReset,
+                        () -> confirmDeviceReset(R.string.NovaDeviceChangedResetConfirm)),
                 matchWrap(0));
+    }
+
+    /**
+     * The failure in one small selectable line under the buttons, so that the
+     * owner can pass on what the Keystore said. Nothing in it is secret.
+     */
+    private void addFailureDetail(String detail) {
+        if (detail == null || detail.isEmpty()) {
+            return;
+        }
+        TextView view = text(12, descriptionColor, Typeface.NORMAL, Gravity.CENTER);
+        view.setText(getString(R.string.NovaDeviceFailureDetail, detail));
+        view.setTextIsSelectable(true);
+        view.setPadding(dp(8), dp(12), dp(8), 0);
+        actionPanel.addView(view, matchWrap(0));
+    }
+
+    /** A secondary action, drawn as a link so the primary one stays the obvious one. */
+    private TextView linkButton(int label, Runnable action) {
+        TextView button = text(15, linkColor, Typeface.BOLD, Gravity.CENTER);
+        button.setText(label);
+        button.setMinHeight(dp(48));
+        button.setPadding(dp(16), dp(12), dp(16), dp(12));
+        button.setBackground(pill(Color.TRANSPARENT, dp(12)));
+        button.setClickable(true);
+        button.setOnClickListener(view -> {
+            if (!busy) {
+                action.run();
+            }
+        });
+        return button;
     }
 
     /** Asks the Keystore again, off the UI thread. */
@@ -705,6 +804,7 @@ public final class NovaPinGateActivity extends Activity {
                     restartApplication();
                     return;
                 }
+                deviceRetriesFailed++;
                 setBusy(false);
                 inspectVault();
             });
@@ -719,7 +819,7 @@ public final class NovaPinGateActivity extends Activity {
         System.exit(0);
     }
 
-    private void confirmDeviceReset() {
+    private void confirmDeviceReset(int message) {
         if (busy) {
             return;
         }
@@ -727,7 +827,7 @@ public final class NovaPinGateActivity extends Activity {
         // that follows is final, and it is the owner who decides to give up.
         new android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.NovaDeviceChangedReset)
-                .setMessage(R.string.NovaDeviceChangedResetConfirm)
+                .setMessage(message)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.NovaDeviceChangedReset,
                         (dialog, which) -> beginDeviceReset())
@@ -759,6 +859,17 @@ public final class NovaPinGateActivity extends Activity {
         descriptionView.setText(message);
         errorView.setText("");
         actionPanel.addView(actionButton(R.string.NovaPinRetry, this::inspectVault), matchWrap(0));
+        // The same dead end as the device check, with the same way out. A
+        // damaged state is final as it stands; an unavailable one is offered
+        // the start over once it has come back after a retry. Neither is a way
+        // past the PIN: the start over destroys what the PIN protects.
+        vaultFailuresShown++;
+        if (message == R.string.NovaPinCorruptState || vaultFailuresShown > 1) {
+            actionPanel.addView(
+                    linkButton(R.string.NovaDeviceChangedReset,
+                            () -> confirmDeviceReset(R.string.NovaDeviceStartOverConfirm)),
+                    matchWrap(0));
+        }
     }
 
     private void renderKeypad() {

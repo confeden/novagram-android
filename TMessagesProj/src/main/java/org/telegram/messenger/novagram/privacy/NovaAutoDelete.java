@@ -72,8 +72,13 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
 
     /** Two dialogs per tick: the answer still has to be applied on the screen. */
     private static final int BATCH_DIALOGS = 2;
-    /** The replacement has to reach the other side before the message goes. */
-    private static final int REPLACE_TO_DELETE_DELAY = 60;
+    /**
+     * The gap between the dot replacement and the deletion. Ten seconds is
+     * enough for the edit to reach the other side while keeping a long Erase
+     * evidence run quick; a replacement that cannot be made at all does not wait
+     * this out, the entry goes straight to deletion.
+     */
+    private static final int REPLACE_TO_DELETE_DELAY = 10;
     private static final String REPLACEMENT = ".";
 
     private static final Object INSTANCE_LOCK = new Object();
@@ -598,7 +603,21 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
                 report.queued++;
                 NovaAutoDeleteStore.Entry existing = state.find(dialogId, message.id);
                 if (existing != null) {
+                    // Already waiting for its ordinary period: move it to now and
+                    // mark it as this run's, so its outcome lands in the report
+                    // instead of being counted by nobody. The flags field is
+                    // final, so the entry is replaced rather than edited.
                     existing.dueAt = at;
+                    if ((existing.flags & NovaAutoDeleteStore.FLAG_ERASE) == 0) {
+                        state.remove(dialogId, message.id);
+                        state.add(new NovaAutoDeleteStore.Entry(
+                                existing.dialogId,
+                                existing.messageId,
+                                existing.date,
+                                at,
+                                existing.stage,
+                                existing.flags | NovaAutoDeleteStore.FLAG_ERASE));
+                    }
                     continue;
                 }
                 enqueue(new NovaAutoDeleteStore.Entry(
@@ -720,13 +739,31 @@ public final class NovaAutoDelete implements NotificationCenter.NotificationCent
         }
         int at = now();
         boolean overdue = false;
+        int earliest = Integer.MAX_VALUE;
         for (int i = 0, count = queue.size(); i < count; i++) {
-            if (queue.get(i).dueAt <= at) {
+            int dueAt = queue.get(i).dueAt;
+            if (dueAt <= at) {
                 overdue = true;
                 break;
             }
+            if (dueAt < earliest) {
+                earliest = dueAt;
+            }
         }
-        long delay = overdue ? BUSY_INTERVAL_MS : TICK_INTERVAL_MS;
+        // The tick interval is a ceiling, not the wait. Asking only whether
+        // something is already overdue made an entry whose ten seconds end
+        // just after a tick wait out the whole minute: the message stood
+        // replaced by a dot in the other side's chat for that minute, and the
+        // progress window stood with it - which is most of what cutting the
+        // delay from 60 s to 10 s was supposed to buy (G72).
+        long delay;
+        if (overdue) {
+            delay = BUSY_INTERVAL_MS;
+        } else if (earliest == Integer.MAX_VALUE) {
+            delay = TICK_INTERVAL_MS;
+        } else {
+            delay = Math.max(0L, Math.min(TICK_INTERVAL_MS, (long) (earliest - at) * 1000L));
+        }
         long elapsed = SystemClock.elapsedRealtime();
         // An already scheduled earlier tick is left alone. Rescheduling on every
         // sent message would push the tick further away for as long as the user

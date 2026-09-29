@@ -8889,12 +8889,15 @@ public class ChatActivity extends BaseFragment implements
 
         contentView.addView(fireworksOverlay = new FireworksOverlay(context), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
-        if (getDialogId() < 0 && chatMode == MODE_DEFAULT && !isInsideContainer && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            messageMetricsView = new ChatActivityMessageMetricsView(context);
-            messageMetricsView.init(currentAccount, getDialogId(), contentView, chatListView);
-            messageMetricsView.setIsUserActive();
-            contentView.addView(messageMetricsView);
-        }
+        // NovaGram: the per-message attention meter is not built. It hangs a
+        // pre-draw listener on the chat and, on every frame, walks every visible
+        // cell, measures how much of each message is on screen and keeps a
+        // watcher per message alive - then reports the collected dwell times to
+        // the server with messages.reportReadMetrics. Nothing of that is wanted:
+        // the request is refused at the send funnel as well
+        // (ConnectionsManager.sendRequestInternal), and not building the view is
+        // what removes the frame cost, which is what matters on an old phone.
+        // Every other use of messageMetricsView is already null-guarded.
 
         checkInstantSearch();
         if (replyingMessageObject != null) {
@@ -13303,11 +13306,15 @@ public class ChatActivity extends BaseFragment implements
      * <p>Erase evidence used to answer with one line - "queued: 47" - and then
      * went quiet for as long as the queue took. Nothing on the screen said
      * whether it was working, finished or stuck. So the work is now watched:
-     * the numbers move while it runs, the window cannot be dismissed until it
-     * is through, and afterwards it waits ten seconds - or until it is closed -
-     * so the result is actually read.</p>
+     * four lines, the numbers moving while it runs, the window undismissable
+     * until it is through, and afterwards a ten second linger - or a close - so
+     * the result is actually read.</p>
+     *
+     * <p>The counters are polled rather than pushed: the queue also fires a
+     * change signal, but the window does not lean on it arriving here, so a
+     * missed signal can never leave it frozen at zero.</p>
      */
-    public void showNovaEraseProgress(long dialogId, int found) {
+    public void showNovaEraseProgress(long dialogId, int found, int reactions) {
         if (getParentActivity() == null) {
             return;
         }
@@ -13319,22 +13326,16 @@ public class ChatActivity extends BaseFragment implements
         showDialog(dialog);
 
         final Runnable[] closer = new Runnable[1];
+        final Runnable[] poll = new Runnable[1];
         final boolean[] finished = new boolean[1];
-        final NotificationCenter.NotificationCenterDelegate[] watcher =
-                new NotificationCenter.NotificationCenterDelegate[1];
         final Runnable update = () -> {
             int[] p = NovaAutoDelete.eraseProgress(currentAccount, dialogId);
-            int queued = p[0] > 0 ? p[0] : found;
+            int total = p[0] > 0 ? p[0] : found;
+            // p = { queued, replaced, deleted, skipped, left, finished }.
             String text = LocaleController.formatString(
                     "NovaEraseProgress",
                     R.string.NovaEraseProgress,
-                    queued, p[2], p[1], p[3]);
-            if (p[5] == 0) {
-                text += "\n\n" + LocaleController.formatString(
-                        "NovaEraseProgressLeft", R.string.NovaEraseProgressLeft, p[4]);
-            } else {
-                text += "\n\n" + LocaleController.getString(R.string.NovaEraseProgressDone);
-            }
+                    total, reactions, p[1], p[2]);
             dialog.setMessage(text);
             if (p[5] != 0 && !finished[0]) {
                 finished[0] = true;
@@ -13350,22 +13351,23 @@ public class ChatActivity extends BaseFragment implements
                 dialog.dismiss();
             }
         };
-        watcher[0] = (id, account, args) -> {
-            if (id == NotificationCenter.novaEraseProgress
-                    && args.length > 0
-                    && args[0] instanceof Long
-                    && (Long) args[0] == dialogId) {
-                update.run();
+        poll[0] = () -> {
+            if (!dialog.isShowing()) {
+                return;
+            }
+            update.run();
+            if (!finished[0]) {
+                AndroidUtilities.runOnUIThread(poll[0], 300L);
             }
         };
-        NotificationCenter.getInstance(currentAccount)
-                .addObserver(watcher[0], NotificationCenter.novaEraseProgress);
         dialog.setOnDismissListener(d -> {
-            NotificationCenter.getInstance(currentAccount)
-                    .removeObserver(watcher[0], NotificationCenter.novaEraseProgress);
+            AndroidUtilities.cancelRunOnUIThread(poll[0]);
             AndroidUtilities.cancelRunOnUIThread(closer[0]);
         });
         update.run();
+        if (!finished[0]) {
+            AndroidUtilities.runOnUIThread(poll[0], 300L);
+        }
     }
 
     private void showNovaEraseEvidenceDialog() {

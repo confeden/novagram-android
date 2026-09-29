@@ -442,6 +442,23 @@ public class ConnectionsManager extends BaseController {
             object.freeResources();
             return;
         }
+        // NovaGram: messages.reportReadMetrics never leaves the device. It
+        // reports, per message, how long it stood on screen, how much of that
+        // time the user was active, how much of the message was visible and how
+        // tall it was against the viewport - attention measurement per message.
+        // Two promises rest on it not going out: a dialog whose read status is
+        // withheld says nothing about what was read there, and the fork sends no
+        // interface telemetry at all.
+        //
+        // Dropped here, at the one funnel every send passes, and not only where
+        // the metrics view is built: a later base may report from a path that
+        // does not exist today, and a gate placed at today's call site would not
+        // be on it. The view is not built either - see ChatActivity - which is
+        // what removes the per-frame work that feeds this.
+        if (object instanceof TLRPC.TL_messages_reportReadMetrics) {
+            object.freeResources();
+            return;
+        }
         if (offline()) {
             answerOffline(object, onComplete, onCompleteTimestamp);
             return;

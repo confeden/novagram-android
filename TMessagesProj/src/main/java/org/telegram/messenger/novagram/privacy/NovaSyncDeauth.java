@@ -301,6 +301,56 @@ public final class NovaSyncDeauth {
                 () -> instance(account).consider(dialogId, date, text));
     }
 
+    /**
+     * Forgets this slot when the account signs out: the watermark file goes,
+     * and so does whatever this instance still holds about that session - the
+     * process outlives a logout and these objects are never thrown away.
+     *
+     * <p>{@link #ensureCurrent()} already refuses to act on another account's
+     * watermark, so this is not what makes the feature safe. What it removes
+     * is the trace: `owner` is the account id in the clear, and after a logout
+     * it was the only kind of thing on the device that still named who had
+     * been signed in (G73).</p>
+     */
+    public static void clearAccount(Context context, int account) {
+        if (context == null || account < 0 || account >= instances.length) {
+            return;
+        }
+        NovaSyncDeauth existing = instances[account];
+        if (existing != null) {
+            existing.forget();
+        }
+        Context applicationContext = context.getApplicationContext();
+        if (applicationContext == null) {
+            applicationContext = context;
+        }
+        String name = ACCOUNT_PREFERENCES_PREFIX + account;
+        try {
+            applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
+                    .edit()
+                    .clear()
+                    .commit();
+        } catch (Throwable ignored) {
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            try {
+                applicationContext.deleteSharedPreferences(name);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void forget() {
+        started = false;
+        ownerId = 0;
+        enabledSince = 0;
+        lastActed = 0;
+        authorized = 0;
+        authorizationTries = 0;
+        held = 0;
+        acted = false;
+    }
+
     private static NovaSyncDeauth instance(int account) {
         NovaSyncDeauth result = instances[account];
         if (result == null) {

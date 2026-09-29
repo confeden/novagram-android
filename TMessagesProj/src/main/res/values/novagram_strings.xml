@@ -30,7 +30,7 @@
     <string name="NovaPinSoftwareWarning">This device did not provide a StrongBox or TEE-backed key. Software protection is weaker and will not hold against a compromised operating system.</string>
     <string name="NovaPinUseSoftware">Use software protection</string>
     <string name="NovaPinChooseAnotherDevice">Do not continue</string>
-    <string name="NovaPinCorruptState">Protected PIN state is missing or damaged. NovaGram fails closed and will not open Telegram data. Reinstall the application only if losing its local data is acceptable.</string>
+    <string name="NovaPinCorruptState">Protected PIN state is missing or damaged. NovaGram fails closed and will not open Telegram data. Start over only if losing its local data is acceptable.</string>
     <string name="NovaPinStorageUnavailable">Protected storage is temporarily unavailable. NovaGram will not downgrade or open Telegram data without PIN protection.</string>
     <string name="NovaPinRetry">Retry</string>
     <string name="NovaCallsDisabled">Calls are disabled until protected signaling and media routing are implemented.</string>
@@ -59,10 +59,7 @@
     <string name="NovaDropIncomingStop">Stop deleting future messages</string>
     <string name="NovaDropIncomingTurnOn">Start deleting</string>
     <string name="NovaDropIncomingAbout">Everything this person sends from now on is deleted on this device before it is stored, shown or announced — no notification, no unread badge, no way to read it later. Nothing is deleted for them: their chat and their messages stay as they are, and they keep seeing the messages as unread. Switches itself off as soon as you send anything here — a message or a reaction.</string>
-    <string name="NovaEraseProgress">Messages of yours found: %1$d
-Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
-    <string name="NovaEraseProgressLeft">Left in the queue: %1$d. This window closes itself once the queue is through — leave it up to watch.</string>
-    <string name="NovaEraseProgressDone">Done. This window closes in a few seconds.</string>
+    <string name="NovaEraseProgress">Messages found: %1$d\nReactions found: %2$d\nReplaced before deletion: %3$d/%1$d\nDeleted: %4$d/%1$d</string>
     <string name="NovaPeerIdNoKey">This client has no access key for that number. Telegram does not allow opening a peer by a bare number: it has to be met in a chat, by @name, by phone number or by link. The number alone does not even say whether it is a person, a group or a channel.</string>
     <string name="NovaAboutRow">What this does ›</string>
     <string name="NovaIconHeader">Icon</string>
@@ -224,6 +221,11 @@ Destroyed: %2$d · replaced with a dot: %3$d · skipped: %4$d</string>
     <string name="NovaDeviceUnknownTitle">Can\'t check this data right now</string>
     <string name="NovaDeviceUnknownDescription">The stored authorisation is sealed, and this phone\'s key store did not answer whether the key that opens it is here. Nothing has been read and nothing has been changed.\n\nTry again, or restart the app. Your data is not being deleted.</string>
     <string name="NovaDeviceUnknownRetry">Try again</string>
+    <string name="NovaDeviceUnknownPersists">If restarting the phone does not help either, the key is most likely lost — this happens after a system update. Then the only way on is to start over and sign in the way a new device does.</string>
+    <string name="NovaDeviceKeyLostTitle">This phone\'s key no longer works</string>
+    <string name="NovaDeviceKeyLostDescription">The stored authorisation is sealed with a key kept inside this phone. The system answered that it can no longer use that key — this happens after a system update. Trying again will not fix it.\n\nStart over and sign in the way a new device does. Everything kept in the Telegram cloud comes back.</string>
+    <string name="NovaDeviceStartOverConfirm">All local data of this installation will be removed, as a reinstall would: secret chats, saved files, the PIN and the NovaGram settings. Cloud chats come back after signing in. The old session stays in the account\'s active sessions — end it from another device.</string>
+    <string name="NovaDeviceFailureDetail">System answer: %1$s</string>
     <string name="NovaDeviceBindingTitle">Bind data to this device</string>
     <string name="NovaDeviceBindingInfo">A copied application data folder signs nobody in on another device — even with no PIN set. Against code running as this app on this phone only a PIN helps.</string>
     <string name="NovaDeviceBindingStateOn">Sealed to this device</string>

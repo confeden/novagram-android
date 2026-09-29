@@ -44,15 +44,13 @@ public final class NovaAutoDeleteKeyStore {
         KeyStore keyStore = loadKeyStore();
         SecretKey existing = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
         if (existing != null) {
-            return inspect(existing, false);
+            return inspect(existing);
         }
 
         SecretKey generated = null;
-        boolean requestedStrongBox = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 generated = generate(true);
-                requestedStrongBox = true;
             } catch (StrongBoxUnavailableException ignored) {
                 deleteQuietly();
             } catch (GeneralSecurityException | RuntimeException ignored) {
@@ -62,7 +60,7 @@ public final class NovaAutoDeleteKeyStore {
         if (generated == null) {
             generated = generate(false);
         }
-        return inspect(generated, requestedStrongBox);
+        return inspect(generated);
     }
 
     public static synchronized void delete() throws GeneralSecurityException {
@@ -90,7 +88,7 @@ public final class NovaAutoDeleteKeyStore {
         return generator.generateKey();
     }
 
-    private static KeyMaterial inspect(SecretKey key, boolean requestedStrongBox)
+    private static KeyMaterial inspect(SecretKey key)
             throws GeneralSecurityException {
         SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), PROVIDER);
         KeyInfo info = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
@@ -113,10 +111,16 @@ public final class NovaAutoDeleteKeyStore {
                     level = NovaPinKeyStore.ProtectionLevel.UNKNOWN;
                     break;
             }
+            // Below API 31 there is nothing here that tells a StrongBox key
+            // from a TEE one: `KeyInfo` answers `isInsideSecureHardware()` and
+            // says no more. Recording what was *asked for* instead of what was
+            // observed is what made `create()` write STRONGBOX and the next
+            // `getExisting()` read TRUSTED_ENVIRONMENT for the same key, which
+            // the vault reports as a changed protection level - a corrupt
+            // state the owner can only answer by wiping, and starting over
+            // writes the same mismatch again (G74).
         } else if (info.isInsideSecureHardware()) {
-            level = requestedStrongBox
-                    ? NovaPinKeyStore.ProtectionLevel.STRONGBOX
-                    : NovaPinKeyStore.ProtectionLevel.TRUSTED_ENVIRONMENT;
+            level = NovaPinKeyStore.ProtectionLevel.TRUSTED_ENVIRONMENT;
         } else {
             level = NovaPinKeyStore.ProtectionLevel.SOFTWARE;
         }

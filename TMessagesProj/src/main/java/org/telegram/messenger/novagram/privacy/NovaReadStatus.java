@@ -1346,6 +1346,18 @@ public final class NovaReadStatus implements NotificationCenter.NotificationCent
         for (Map.Entry<Long, Integer> rule : state.getRules().entrySet()) {
             snapshot.setRule(rule.getKey(), rule.getValue());
         }
+        // The spells of dropping go into the snapshot too, and copied rather
+        // than shared: the sealing runs on another thread while this state
+        // keeps taking messages. Leaving them out sealed the rules and nothing
+        // else, so "delete future messages" came back off every restart with
+        // its switch on and no memory of what it had already thrown away - and
+        // the server would have handed those messages over again.
+        for (Map.Entry<Long, int[]> drop : state.getDropRanges().entrySet()) {
+            int[] ranges = drop.getValue();
+            snapshot.setDropRanges(
+                    drop.getKey(),
+                    ranges == null ? null : ranges.clone());
+        }
         Utilities.globalQueue.postRunnable(() -> {
             if (!wiped && !store.save(snapshot)) {
                 // "Turn off permanently" is a promise about the next start too,

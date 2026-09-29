@@ -1663,6 +1663,18 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.setTranslationY(0);
         }
         containersAlpha *= (1f - factorSearch);
+        // NovaGram: this screen's title - "Telegram", or the connection status
+        // shown in its place - must stay hidden while a group's room list is
+        // slid in over it. setOpenProgress() hides it by fading the title view,
+        // but the action bar owns that view too: every connection status change
+        // swaps it and animates it back to full alpha, and a change that arrives
+        // mid-animation is applied later from the action bar's own listener,
+        // past any override here. So "Waiting for network...", "Connecting..."
+        // and then "Telegram" were drawn across the group's header. Nothing but
+        // this method writes the container's alpha, so the factor put here holds
+        // whatever the action bar does to the text inside it.
+        final float roomListFactor = rightSlidingDialogContainer != null && rightSlidingDialogContainer.hasFragment()
+            ? 1f - rightSlidingDialogContainer.openedProgress : 1f;
         if (containersAlpha != 1f) {
             actionBar.getTitlesContainer().setPivotY(AndroidUtilities.statusBarHeight);
             actionBar.getTitlesContainer().setPivotX(dp(20));
@@ -1675,7 +1687,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getAdditionalSubTitleOverlayContainer().setScaleY(s);
             actionBar.getAdditionalSubTitleOverlayContainer().setScaleX(s);
 
-            final float titleAlpha = containersAlpha * (1f - progressToActionMode);
+            final float titleAlpha = containersAlpha * (1f - progressToActionMode) * roomListFactor;
             actionBar.getTitlesContainer().setAlpha(titleAlpha);
             actionBar.getTitlesContainer().setVisibility(titleAlpha > 0 ? View.VISIBLE : View.INVISIBLE);
             actionBar.getAdditionalSubTitleOverlayContainer().setAlpha(titleAlpha);
@@ -1688,7 +1700,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getAdditionalSubTitleOverlayContainer().setScaleY(1f);
             actionBar.getAdditionalSubTitleOverlayContainer().setScaleX(1f);
 
-            final float titleAlpha = 1f - progressToActionMode;
+            final float titleAlpha = (1f - progressToActionMode) * roomListFactor;
             actionBar.getTitlesContainer().setAlpha(titleAlpha);
             actionBar.getTitlesContainer().setVisibility(titleAlpha > 0 ? View.VISIBLE : View.INVISIBLE);
             actionBar.getAdditionalSubTitleOverlayContainer().setAlpha(titleAlpha);

@@ -15,6 +15,8 @@ import android.util.Base64;
 import android.util.LongSparseArray;
 
 import org.telegram.messenger.novagram.privacy.NovaContactSync;
+import org.telegram.messenger.novagram.privacy.NovaPrivacySettings;
+import org.telegram.messenger.novagram.privacy.NovaSyncDeauth;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLRPC;
@@ -471,6 +473,13 @@ public class UserConfig extends BaseController {
 
     public void clearConfig() {
         getPreferences().edit().clear().apply();
+        // NovaGram: the fork's own per-slot files are emptied with the slot.
+        // The three sealed stores take themselves down on appDidLogout; these
+        // two have nobody to do it, and each holds the account id in the
+        // clear - after a logout they were the only thing on the device still
+        // naming who had been signed in here (G73).
+        NovaSyncDeauth.clearAccount(ApplicationLoader.applicationContext, currentAccount);
+        NovaPrivacySettings.clearAccount(ApplicationLoader.applicationContext, currentAccount);
 
         sharingMyLocationUntil = 0;
         lastMyLocationShareTime = 0;

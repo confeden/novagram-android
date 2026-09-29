@@ -54,8 +54,17 @@ public final class NovaDeviceKeyStore {
 
     public static synchronized void delete() throws GeneralSecurityException {
         KeyStore keyStore = loadKeyStore();
-        if (keyStore.containsAlias(KEY_ALIAS)) {
+        // Not asked through containsAlias first: on keystore2 that answers
+        // false for an entry it cannot read, and an entry it cannot read is
+        // the one a start over after a failed system update has to remove.
+        // Deleting an alias that is not there is not an error on either
+        // Keystore, so only a failure over an entry still listed is reported.
+        try {
             keyStore.deleteEntry(KEY_ALIAS);
+        } catch (java.security.KeyStoreException e) {
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                throw e;
+            }
         }
     }
 

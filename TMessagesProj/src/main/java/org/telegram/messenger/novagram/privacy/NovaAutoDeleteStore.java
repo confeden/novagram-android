@@ -318,8 +318,8 @@ public final class NovaAutoDeleteStore {
             }
             NovaPinKeyStore.ProtectionLevel storedProtectionLevel =
                     NovaPinKeyStore.ProtectionLevel.fromStorageId(input.readInt());
-            if (storedProtectionLevel == NovaPinKeyStore.ProtectionLevel.UNKNOWN
-                    || storedProtectionLevel != actualProtectionLevel) {
+            if (!NovaPinKeyStore.ProtectionLevel.matchesStored(
+                    storedProtectionLevel, actualProtectionLevel)) {
                 // A key that changed protection level is not the key that sealed
                 // this file, whatever the Keystore says about the alias.
                 throw new CorruptStateException("Queue key protection level changed");

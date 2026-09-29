@@ -177,7 +177,7 @@ public final class NovaChatMenu {
                 // and the window is what makes that visible while it does.
                 if (fragment instanceof org.telegram.ui.ChatActivity) {
                     ((org.telegram.ui.ChatActivity) fragment)
-                            .showNovaEraseProgress(dialogId, queued);
+                            .showNovaEraseProgress(dialogId, queued, reactions);
                     return;
                 }
                 text = LocaleController.formatString(
