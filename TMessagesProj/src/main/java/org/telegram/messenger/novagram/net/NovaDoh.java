@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import javax.net.ssl.SSLSocket;
+import org.telegram.messenger.novagram.privacy.NovaDecoyState;
 
 /**
  * Every name this client resolves for itself, resolved over the fork's own list
@@ -435,6 +436,15 @@ public final class NovaDoh {
      */
     public static Answer resolve(String host, int type, boolean useCache) {
         if (host == null || host.length() == 0) {
+            return new Answer(Collections.<String>emptyList(), 0, 0);
+        }
+        if (NovaDecoyState.isActive()) {
+            // I4: the decoy check belongs at this module's single entry point,
+            // not at the two callers that happen to exist today. Both of them
+            // do check - this is what keeps the next caller from being the one
+            // that opens a TLS connection to a DoH endpoint from a phone whose
+            // account was destroyed. An empty answer is what an unreachable
+            // name looks like, which is what the decoy already is elsewhere.
             return new Answer(Collections.<String>emptyList(), 0, 0);
         }
         String lowered = host.toLowerCase(Locale.US);

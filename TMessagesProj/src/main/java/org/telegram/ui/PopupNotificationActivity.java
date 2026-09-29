@@ -49,6 +49,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
@@ -165,6 +166,21 @@ public class PopupNotificationActivity extends Activity implements NotificationC
         super.onCreate(savedInstanceState);
         if (NovaPinSession.guardAfterSuper(this)) {
             return;
+        }
+        // NovaGram: this is a window of its own, outside LaunchActivity, and it
+        // draws the message text, its media and the name of whoever sent it -
+        // over the lock screen, at that. Nothing here asked about screen
+        // capture at all, not even upstream's passcode condition, so it was the
+        // one surface where the fork's switch said "blocked" and a screenshot
+        // was taken anyway. Set before the first frame, never cleared: a popup
+        // lives for one message and is finished, so there is no state to follow.
+        if (NovaScreenshotPolicy.shouldSecureWindow(this)) {
+            try {
+                getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+                AndroidUtilities.logFlagSecure();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
         Theme.createDialogsResources(this);
         Theme.createChatResources(this, false);

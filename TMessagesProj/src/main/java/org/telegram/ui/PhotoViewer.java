@@ -182,6 +182,7 @@ import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessageSuggestionParams;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
@@ -17438,7 +17439,15 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR |
                 WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM |
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
-            if (chatActivity != null && chatActivity.getCurrentEncryptedChat() != null ||
+            // NovaGram: the viewer is a window of its own, added to the window
+            // manager rather than drawn inside LaunchActivity, so the flag the
+            // activity carries does not reach it - and this is where a photo is
+            // at its largest. Upstream secures it only for the cases it cares
+            // about (secret chats, no-forwards peers), which left the fork's own
+            // switch saying "blocked" while the picture was capturable. Asked
+            // first, upstream's reasons kept behind it.
+            if (NovaScreenshotPolicy.shouldSecureWindow(parentActivity) ||
+                chatActivity != null && chatActivity.getCurrentEncryptedChat() != null ||
                 avatarsDialogId != 0 && MessagesController.getInstance(currentAccount).isPeerNoForwards(avatarsDialogId) ||
                 messageObject != null && (MessagesController.getInstance(currentAccount).isPeerNoForwards(messageObject.getDialogId()) ||
                 (messageObject.messageOwner != null && messageObject.messageOwner.noforwards)) || messageObject != null && messageObject.hasRevealedExtendedMedia()

@@ -27,6 +27,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.novagram.privacy.NovaScreenshotPolicy;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.novagram.privacy.NovaPinSession;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -73,7 +74,15 @@ public class BubbleActivity extends BasePermissionsActivity implements INavigati
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setTheme(R.style.Theme_TMessages);
         getWindow().setBackgroundDrawable(new ActivityWindowEmptyBackgroundDrawable());
-        if (!SharedConfig.passcodeHash.isEmpty() && !SharedConfig.allowScreenCapture) {
+        // NovaGram: a bubble is a window of its own, outside LaunchActivity, and
+        // it draws a whole conversation. Upstream's condition alone leaves it
+        // capturable in the configuration everyone runs - no passcode - which
+        // is the very condition NovaScreenshotPolicy exists to replace. Asked
+        // here as well, and upstream's reason kept behind it so that "allow
+        // screen capture" still means something to a passcode user who turned
+        // the fork's switch off.
+        if (NovaScreenshotPolicy.shouldSecureWindow(this)
+                || !SharedConfig.passcodeHash.isEmpty() && !SharedConfig.allowScreenCapture) {
             try {
                 getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
                 AndroidUtilities.logFlagSecure();
