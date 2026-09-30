@@ -18529,42 +18529,49 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
 
                     getMessagesStorage().setLastPtsValue(updates.pts);
-                    boolean isDialogCreated = createdDialogIds.contains(message.dialog_id);
-                    MessageObject obj = new MessageObject(currentAccount, message, isDialogCreated, isDialogCreated);
-                    ArrayList<MessageObject> objArr = new ArrayList<>();
-                    objArr.add(obj);
-                    ArrayList<TLRPC.Message> arr = new ArrayList<>();
-                    arr.add(message);
-                    if (updates instanceof TLRPC.TL_updateShortMessage) {
-                        boolean printUpdate = !updates.out && updatePrintingUsersWithNewMessages(updates.user_id, objArr);
-                        if (printUpdate) {
-                            updatePrintingStrings();
-                        }
-                        AndroidUtilities.runOnUIThread(() -> {
+                    // NovaGram: a private message arriving live comes as a short
+                    // update and never reaches processUpdateArray, where the drop is
+                    // asked; without this every message the owner asked to be dropped
+                    // was shown, stored and announced. The pts is already taken, so
+                    // nothing asks the server for it again.
+                    if (!NovaDropIncoming.drops(currentAccount, message.dialog_id, message)) {
+                        boolean isDialogCreated = createdDialogIds.contains(message.dialog_id);
+                        MessageObject obj = new MessageObject(currentAccount, message, isDialogCreated, isDialogCreated);
+                        ArrayList<MessageObject> objArr = new ArrayList<>();
+                        objArr.add(obj);
+                        ArrayList<TLRPC.Message> arr = new ArrayList<>();
+                        arr.add(message);
+                        if (updates instanceof TLRPC.TL_updateShortMessage) {
+                            boolean printUpdate = !updates.out && updatePrintingUsersWithNewMessages(updates.user_id, objArr);
                             if (printUpdate) {
-                                getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
+                                updatePrintingStrings();
                             }
-                            updateInterfaceWithMessages(userId, objArr, 0);
-                            getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
-                        });
-                    } else {
-                        boolean printUpdate = updatePrintingUsersWithNewMessages(-updates.chat_id, objArr);
-                        if (printUpdate) {
-                            updatePrintingStrings();
-                        }
-                        AndroidUtilities.runOnUIThread(() -> {
+                            AndroidUtilities.runOnUIThread(() -> {
+                                if (printUpdate) {
+                                    getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
+                                }
+                                updateInterfaceWithMessages(userId, objArr, 0);
+                                getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
+                            });
+                        } else {
+                            boolean printUpdate = updatePrintingUsersWithNewMessages(-updates.chat_id, objArr);
                             if (printUpdate) {
-                                getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
+                                updatePrintingStrings();
                             }
+                            AndroidUtilities.runOnUIThread(() -> {
+                                if (printUpdate) {
+                                    getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, UPDATE_MASK_USER_PRINT);
+                                }
 
-                            updateInterfaceWithMessages(-updates.chat_id, objArr, 0);
-                            getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
-                        });
+                                updateInterfaceWithMessages(-updates.chat_id, objArr, 0);
+                                getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
+                            });
+                        }
+                        if (!obj.isOut()) {
+                            getMessagesStorage().getStorageQueue().postRunnable(() -> AndroidUtilities.runOnUIThread(() -> getNotificationsController().processNewMessages(objArr, true, false, null)));
+                        }
+                        getMessagesStorage().putMessages(arr, false, true, false, 0, 0, 0);
                     }
-                    if (!obj.isOut()) {
-                        getMessagesStorage().getStorageQueue().postRunnable(() -> AndroidUtilities.runOnUIThread(() -> getNotificationsController().processNewMessages(objArr, true, false, null)));
-                    }
-                    getMessagesStorage().putMessages(arr, false, true, false, 0, 0, 0);
                 } else if (getMessagesStorage().getLastPtsValue() != updates.pts) {
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("need get diff short message, pts: " + getMessagesStorage().getLastPtsValue() + " " + updates.pts + " count = " + updates.pts_count);
