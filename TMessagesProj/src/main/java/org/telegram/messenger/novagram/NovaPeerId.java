@@ -201,7 +201,8 @@ public final class NovaPeerId {
                     || (i < length && glued(text.charAt(i)))) {
                 continue;
             }
-            if (spannable.getSpans(from, i, URLSpan.class).length > 0) {
+            final URLSpan[] existing = spannable.getSpans(from, i, URLSpan.class);
+            if (existing.length > 0 && !onlyBarePhone(spannable, existing, from, i)) {
                 continue;
             }
             long bare;
@@ -213,12 +214,30 @@ public final class NovaPeerId {
             if (!resolvable(account, bare)) {
                 continue;
             }
+            // The server marks any bare run of ten digits as a phone number,
+            // and a user id has ten digits now: left alone, every id this
+            // client can open would open the phone menu instead. A number that
+            // names a peer the client knows is taken as that peer.
+            for (URLSpan span : existing) {
+                spannable.removeSpan(span);
+            }
             spannable.setSpan(
                     new URLSpanNoUnderline(LINK_PREFIX + bare),
                     from,
                     i,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+    }
+
+    private static boolean onlyBarePhone(Spannable text, URLSpan[] spans, int from, int to) {
+        final String digits = text.subSequence(from, to).toString();
+        for (URLSpan span : spans) {
+            if (text.getSpanStart(span) != from || text.getSpanEnd(span) != to
+                    || !("tel:" + digits).equals(span.getURL())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean glued(char ch) {
