@@ -67,4 +67,12 @@
 # build fails outright.
 -keep class org.telegram.messenger.novagram.update.NovaUpdateLayout { *; }
 
+# NovaGram: since 12.10.4 JNI_OnLoad registers the media3 ffmpeg natives by
+# name and fails the whole libtmessages load if one is missing. A failed load
+# makes NativeLoader map a second copy from files/lib, and the copy that plays
+# GIFs and video avatars never saw setJava - a null JavaVM and SIGSEGV in
+# requestFd. The 12.10.5 merge built that way over a stale media3 pin; the
+# natives are kept by name so R8 can never be the next cause of the same load.
+-keepclassmembers class androidx.media3.decoder.ffmpeg.** { native <methods>; }
+
 -keep class org.telegram.tgnet.** { *; }
