@@ -4,6 +4,7 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
@@ -118,7 +119,7 @@ public final class NovaEraseEvidence {
                     reachedEnd = true;
                     break;
                 }
-                if (message.out && !isService(message) && message.id > 0) {
+                if (isOwn(message) && !isService(message) && message.id > 0) {
                     found.add(message);
                 }
                 if (withdrawReaction(message)) {
@@ -199,6 +200,31 @@ public final class NovaEraseEvidence {
             if (callback != null) {
                 callback.onFinished(queued, reactionsRemoved, complete);
             }
+        }
+
+        /**
+         * Whether this message is the user's own. Not simply {@code out}:
+         * in Saved Messages the server does not set that flag, which is why
+         * upstream's own {@code MessageObject.isOutOwner()} answers by the
+         * dialog there rather than by the flag. Asking only {@code out} made
+         * Erase evidence find nothing at all in Saved Messages and say so -
+         * "no messages of yours for this period" - over a chat that is usually
+         * the most private one on the account.
+         */
+        private boolean isOwn(TLRPC.Message message) {
+            long self = UserConfig.getInstance(account).getClientUserId();
+            if (dialogId == self) {
+                if (message.fwd_from != null) {
+                    // A forward into Saved Messages is the user's own only when
+                    // it was they who forwarded it, which is the same question
+                    // upstream asks.
+                    return (message.fwd_from.from_id instanceof TLRPC.TL_peerUser
+                            && message.fwd_from.from_id.user_id == self)
+                            || message.fwd_from.saved_out;
+                }
+                return true;
+            }
+            return message.out;
         }
 
         private static boolean isService(TLRPC.Message message) {
