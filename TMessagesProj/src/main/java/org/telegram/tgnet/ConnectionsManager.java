@@ -818,6 +818,10 @@ public class ConnectionsManager extends BaseController {
         NovaDeviceLock.installNativeKey();
         boolean rewriteConfig = NovaDeviceLock.needsConfigRewrite(currentAccount);
 
+        // NovaGram: before the first connection opens, so the native socket knows
+        // whether to dial the WSS bridge. A user proxy set below still wins natively.
+        org.telegram.messenger.novagram.net.NovaWss.apply();
+
         native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
         // NovaGram: native_init has read this account's tgnet.dat by now, so
         // this is the first moment the answer exists. The Java side reaches the
@@ -1209,6 +1213,7 @@ public class ConnectionsManager extends BaseController {
     public static native int native_getConnectionState(int currentAccount);
     public static native void native_setUserId(int currentAccount, long id);
     public static native void native_init(int currentAccount, int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, String installer, String packageId, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection, boolean hasNetwork, int networkType, int performanceClass);
+    public static native void native_setWssBridge(int port, byte[] token);
     public static native void native_setProxySettings(int currentAccount, String address, int port, String username, String password, String secret);
     public static native void native_setLangCode(int currentAccount, String langCode);
     public static native void native_setRegId(int currentAccount, String regId);

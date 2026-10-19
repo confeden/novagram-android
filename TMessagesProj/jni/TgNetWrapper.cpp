@@ -225,6 +225,13 @@ void applyDatacenterAddress(JNIEnv *env, jclass c, jint instanceNum, jint datace
     }
 }
 
+void setWssBridge(JNIEnv *env, jclass c, jint port, jbyteArray token) {
+    if (token != nullptr && env->GetArrayLength(token) == 16) {
+        env->GetByteArrayRegion(token, 0, 16, (jbyte *) ConnectionsManager::wssBridgeToken);
+    }
+    ConnectionsManager::wssBridgePort.store((uint16_t) port);
+}
+
 void setProxySettings(JNIEnv *env, jclass c, jint instanceNum, jstring address, jint port, jstring username, jstring password, jstring secret) {
     const char *addressStr = env->GetStringUTFChars(address, 0);
     const char *usernameStr = env->GetStringUTFChars(username, 0);
@@ -587,6 +594,7 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_cancelRequestsForGuid", "(II)V", (void *) cancelRequestsForGuid},
         {"native_bindRequestToGuid", "(III)V", (void *) bindRequestToGuid},
         {"native_applyDatacenterAddress", "(IILjava/lang/String;I)V", (void *) applyDatacenterAddress},
+        {"native_setWssBridge", "(I[B)V", (void *) setWssBridge},
         {"native_setProxySettings", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", (void *) setProxySettings},
         {"native_getConnectionState", "(I)I", (void *) getConnectionState},
         {"native_setUserId", "(IJ)V", (void *) setUserId},

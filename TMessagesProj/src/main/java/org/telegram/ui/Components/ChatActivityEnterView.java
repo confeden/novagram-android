@@ -7280,7 +7280,30 @@ public class ChatActivityEnterView extends FrameLayout implements
         }
     }
 
+    /** NovaGram: set while a confirmed send re-enters {@link #sendMessageInternal}. */
+    private boolean novaForbiddenConfirmed;
+
     protected boolean sendMessageInternal(boolean notify, int scheduleDate, int scheduleRepeatPeriod, long payStars, boolean allowConfirm) {
+        if (!novaForbiddenConfirmed && messageEditText != null && parentFragment != null) {
+            // NovaGram: the only moment the text is looked at - the user pressed
+            // send. A listed link asks first, except in Saved Messages.
+            final boolean novaAsked = org.telegram.messenger.novagram.privacy.NovaForbiddenUi.confirmText(
+                    parentFragment,
+                    messageEditText.getTextToUse(),
+                    dialog_id,
+                    UserConfig.getInstance(currentAccount).getClientUserId(),
+                    () -> {
+                        novaForbiddenConfirmed = true;
+                        try {
+                            sendMessageInternal(notify, scheduleDate, scheduleRepeatPeriod, payStars, allowConfirm);
+                        } finally {
+                            novaForbiddenConfirmed = false;
+                        }
+                    });
+            if (novaAsked) {
+                return true;
+            }
+        }
         final boolean allowConfirmFinal = allowConfirm && !animatorEphemeralMessageVisibility.getValue();
 
         final Runnable send = () -> {

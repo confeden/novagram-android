@@ -86,6 +86,7 @@ import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.novagram.privacy.NovaForbiddenUi;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.ConnectionsManager;
@@ -2398,10 +2399,59 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
         return true;
     }
 
+    /** NovaGram: set while a confirmed send re-enters {@link #sendInternal}. */
+    private boolean novaForbiddenConfirmed;
+
     protected void sendInternal(boolean withSound) {
         for (int a = 0; a < selectedDialogs.size(); a++) {
             long key = selectedDialogs.keyAt(a);
             if (AlertsCreator.checkSlowMode(getContext(), currentAccount, key, frameLayout2.getTag() != null && commentTextView.length() > 0)) {
+                return;
+            }
+        }
+
+        if (!novaForbiddenConfirmed) {
+            // NovaGram: warn before a listed link or material title leaves with the
+            // comment, the shared text or the forwarded messages. Saved Messages alone is exempt.
+            final long novaSelfId = UserConfig.getInstance(currentAccount).getClientUserId();
+            long novaDialogId = novaSelfId;
+            for (int a = 0; a < selectedDialogs.size(); a++) {
+                if (selectedDialogs.keyAt(a) != novaSelfId) {
+                    novaDialogId = selectedDialogs.keyAt(a);
+                    break;
+                }
+            }
+            final BaseFragment novaFragment = parentFragment != null ? parentFragment : LaunchActivity.getLastFragment();
+            final Runnable novaResend = () -> {
+                novaForbiddenConfirmed = true;
+                try {
+                    sendInternal(withSound);
+                } finally {
+                    novaForbiddenConfirmed = false;
+                }
+            };
+            final StringBuilder novaText = new StringBuilder();
+            if (frameLayout2.getTag() != null && commentTextView.length() > 0) {
+                novaText.append(commentTextView.getText());
+            }
+            if (sendingMessageObjects == null && sendingText != null) {
+                final int novaTab = switchView != null ? switchView.currentTab : 0;
+                if (novaTab >= 0 && novaTab < sendingText.length && sendingText[novaTab] != null) {
+                    novaText.append('\n').append(sendingText[novaTab]);
+                }
+            }
+            // the comment / shared text is asked first, then the forwarded messages
+            final Runnable novaForwardStep = () -> {
+                if (sendingMessageObjects != null && novaFragment != null) {
+                    NovaForbiddenUi.confirmForward(novaFragment, sendingMessageObjects, novaResend, null);
+                } else {
+                    novaResend.run();
+                }
+            };
+            if (novaDialogId != novaSelfId) {
+                if (!NovaForbiddenUi.confirmText(novaFragment, novaText, novaDialogId, novaSelfId, novaForwardStep)) {
+                    novaForwardStep.run();
+                }
                 return;
             }
         }

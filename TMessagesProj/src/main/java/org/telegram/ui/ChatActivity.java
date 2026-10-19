@@ -196,6 +196,7 @@ import org.telegram.messenger.Timer;
 import org.telegram.messenger.TranslateController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
+import org.telegram.messenger.novagram.privacy.NovaForbiddenUi;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.VideoEditedInfo;
 import org.telegram.messenger.browser.Browser;
@@ -3642,6 +3643,9 @@ public class ChatActivity extends BaseFragment implements
             );
         }
 
+        /** NovaGram: set while a confirmed quote re-enters this handler. */
+        private boolean novaQuoteConfirmed;
+
         @Override
         protected void onQuoteClick(MessageObject messageObject, int start, int end, CharSequence text) {
             if (messageObject == null) {
@@ -3660,6 +3664,21 @@ public class ChatActivity extends BaseFragment implements
                 }
                 ReplyQuote quote = ReplyQuote.from(messageObject, start, end);
                 if (quote.getText() == null) {
+                    return;
+                }
+                if (!novaQuoteConfirmed) {
+                    final MessageObject novaQuoted = messageObject;
+                    final int novaStart = start;
+                    final int novaEnd = end;
+                    final CharSequence novaText = text;
+                    NovaForbiddenUi.confirmMessage(chatActivity, novaQuoted, () -> {
+                        novaQuoteConfirmed = true;
+                        try {
+                            onQuoteClick(novaQuoted, novaStart, novaEnd, novaText);
+                        } finally {
+                            novaQuoteConfirmed = false;
+                        }
+                    }, null);
                     return;
                 }
                 if (chatActivity.chatActivityEnterView == null || chatActivity.chatActivityEnterView.getVisibility() != View.VISIBLE) {
@@ -5272,7 +5291,8 @@ public class ChatActivity extends BaseFragment implements
                             fragment.setDelegate(ChatActivity.this);
                             presentFragment(fragment);
                         } else {
-                            showFieldPanelForReply(getSlidingMessageObject());
+                            final MessageObject novaSliding = getSlidingMessageObject();
+                            NovaForbiddenUi.confirmMessage(ChatActivity.this, novaSliding, () -> showFieldPanelForReply(novaSliding), null);
                         }
                     }
                     endTrackingX = slidingViewGetOffsetX();
@@ -8313,7 +8333,8 @@ public class ChatActivity extends BaseFragment implements
             }
             hideActionMode();
             if (messageObject != null && (messageObject.messageOwner.id > 0 || messageObject.messageOwner.id < 0 && currentEncryptedChat != null)) {
-                showFieldPanelForReply(messageObject);
+                final MessageObject novaReplyTo = messageObject;
+                NovaForbiddenUi.confirmMessage(this, novaReplyTo, () -> showFieldPanelForReply(novaReplyTo), null);
             }
             updatePinnedMessageView(true);
             updateVisibleRows();
@@ -12486,6 +12507,23 @@ public class ChatActivity extends BaseFragment implements
     }
 
     private void openForward(boolean fromActionBar) {
+        if (!novaForbiddenOk) {
+            final ArrayList<MessageObject> novaSelected = new ArrayList<>();
+            for (int a = 0; a < 2; a++) {
+                for (int b = 0; b < selectedMessagesIds[a].size(); b++) {
+                    novaSelected.add(selectedMessagesIds[a].valueAt(b));
+                }
+            }
+            NovaForbiddenUi.confirmForward(this, novaSelected, () -> {
+                novaForbiddenOk = true;
+                try {
+                    openForward(fromActionBar);
+                } finally {
+                    novaForbiddenOk = false;
+                }
+            }, null);
+            return;
+        }
         if (isPeerNoForwards() || hasSelectedNoforwardsMessage()) {
             // We should update text if user changed locale without re-opening chat activity
             String str;
@@ -14698,6 +14736,11 @@ public class ChatActivity extends BaseFragment implements
 
     @Override
     public void didSelectFiles(ArrayList<String> files, String caption, ArrayList<TLRPC.MessageEntity> captionEntities, ArrayList<MessageObject> fmessages, boolean notify, int scheduleDate, int scheduleRepeatPeriod, long effectId, boolean invertMedia, long payStars) {
+        // NovaGram: a listed link or material title in the caption asks before the files are sent.
+        final String novaCaption = caption;
+        if (novaConfirmCaption(caption, () -> didSelectFiles(files, novaCaption, captionEntities, fmessages, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, payStars))) {
+            return;
+        }
         fillEditingMediaWithCaption(caption, null);
         if (checkSlowModeAlert()) {
             if (!fmessages.isEmpty() && !TextUtils.isEmpty(caption)) {
@@ -34086,8 +34129,42 @@ public class ChatActivity extends BaseFragment implements
         MediaController.saveFile(path, getParentActivity(), messageObject.isVideo() ? 1 : 0, null, null);
     }
 
+    /** NovaGram: set while a confirmed forward or reply re-enters its own handler. */
+    private boolean novaForbiddenOk;
+
     private void processSelectedOption(int option) {
         if (selectedObject == null || getParentActivity() == null) {
+            return;
+        }
+        if ((option == OPTION_FORWARD || option == OPTION_REPLY) && !novaForbiddenOk) {
+            // NovaGram: a listed author is asked about before the forward
+            // picker or the reply panel opens. The confirmed path re-enters
+            // here once, with the flag set.
+            final MessageObject novaObject = selectedObject;
+            final MessageObject.GroupedMessages novaGroup = selectedObjectGroup;
+            final MessageObject novaEditCaption = selectedObjectToEditCaption;
+            final java.util.Collection<MessageObject> novaScope = novaGroup != null ? novaGroup.messages : java.util.Collections.singletonList(novaObject);
+            final Runnable novaProceed = () -> {
+                selectedObject = novaObject;
+                selectedObjectGroup = novaGroup;
+                selectedObjectToEditCaption = novaEditCaption;
+                novaForbiddenOk = true;
+                try {
+                    processSelectedOption(option);
+                } finally {
+                    novaForbiddenOk = false;
+                }
+            };
+            final Runnable novaCancel = () -> {
+                selectedObject = null;
+                selectedObjectToEditCaption = null;
+                selectedObjectGroup = null;
+            };
+            if (option == OPTION_FORWARD) {
+                NovaForbiddenUi.confirmForward(this, novaScope, novaProceed, novaCancel);
+            } else {
+                NovaForbiddenUi.confirmMessages(this, novaScope, novaProceed, novaCancel);
+            }
             return;
         }
         boolean preserveDim = false;
@@ -36277,7 +36354,29 @@ public class ChatActivity extends BaseFragment implements
         return userInfo;
     }
 
+    /** NovaGram: set while a confirmed caption send re-enters the method that asked. */
+    private boolean novaCaptionConfirmed;
+
+    /** NovaGram: true when a warning was shown; {@code resend} then runs once if the user continues. */
+    private boolean novaConfirmCaption(CharSequence caption, Runnable resend) {
+        if (novaCaptionConfirmed) {
+            return false;
+        }
+        return NovaForbiddenUi.confirmText(this, caption, dialog_id, UserConfig.getInstance(currentAccount).getClientUserId(), () -> {
+            novaCaptionConfirmed = true;
+            try {
+                resend.run();
+            } finally {
+                novaCaptionConfirmed = false;
+            }
+        });
+    }
+
     public void sendAudio(ArrayList<MessageObject> audios, CharSequence caption, boolean notify, int scheduleDate, int scheduleRepeatPeriod, long effectId, boolean invertMedia, long payStars) {
+        // NovaGram: a listed link or material title in the caption asks before the audio is sent.
+        if (novaConfirmCaption(caption, () -> sendAudio(audios, caption, notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia, payStars))) {
+            return;
+        }
         if (checkSlowModeAlert()) {
             fillEditingMediaWithCaption(caption, null);
             SendMessagesHelper.prepareSendingAudioDocuments(getAccountInstance(), audios, caption != null ? caption : null, dialog_id, replyingMessageObject, getThreadMessage(), null, notify, scheduleDate, scheduleRepeatPeriod, editingMessageObject, getMessageChatSendParams(), effectId, invertMedia, payStars);
@@ -36300,6 +36399,17 @@ public class ChatActivity extends BaseFragment implements
     }
 
     public void sendContacts(ArrayList<TLRPC.User> users, String caption, boolean notify, int scheduleDate, long effectId, boolean invertMedia, long payStars) {
+        // NovaGram: a listed link or material title in the caption asks before the contacts are sent.
+        final ArrayList<TLRPC.User> novaUsers = users;
+        final String novaCaption = caption;
+        final boolean novaNotify = notify;
+        final int novaScheduleDate = scheduleDate;
+        final long novaEffectId = effectId;
+        final boolean novaInvertMedia = invertMedia;
+        final long novaPayStars = payStars;
+        if (novaConfirmCaption(novaCaption, () -> sendContacts(novaUsers, novaCaption, novaNotify, novaScheduleDate, novaEffectId, novaInvertMedia, novaPayStars))) {
+            return;
+        }
         if (checkSlowModeAlert()) {
             if (!TextUtils.isEmpty(caption)) {
                 SendMessagesHelper.SendMessageParams params = SendMessagesHelper.SendMessageParams.of(caption, dialog_id, null, null, null, true, null, null, null, true, 0, 0, null, false);

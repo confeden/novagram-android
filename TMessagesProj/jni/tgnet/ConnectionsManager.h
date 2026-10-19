@@ -43,6 +43,9 @@ public:
     ~ConnectionsManager();
 
     static ConnectionsManager &getInstance(int32_t instanceNum);
+    // NovaGram: loopback port of the WSS bridge, 0 when off. Process-wide.
+    static std::atomic<uint16_t> wssBridgePort;
+    static uint8_t wssBridgeToken[16];
     int64_t getCurrentTimeMillis();
     int64_t getCurrentTimeMonotonicMillis();
     int32_t getCurrentTime();

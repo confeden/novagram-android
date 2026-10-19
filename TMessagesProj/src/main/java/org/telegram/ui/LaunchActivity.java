@@ -6252,6 +6252,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         return true;
     }
 
+    /** NovaGram: set while a confirmed share re-enters {@link #didSelectDialogs}. */
+    private boolean novaForbiddenConfirmed;
+
     @Override
     public boolean didSelectDialogs(DialogsActivity dialogsFragment, ArrayList<MessagesStorage.TopicKey> dids, CharSequence message, boolean param, boolean _notify, int _scheduleDate, int scheduleRepeatPeriod, TopicsFragment topicsFragment) {
         final int account = dialogsFragment != null ? dialogsFragment.getCurrentAccount() : currentAccount;
@@ -6295,6 +6298,37 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             }
         } else {
+            if (!novaForbiddenConfirmed) {
+                // NovaGram: the destination is known only here. A listed link or material
+                // title in the shared text (or the typed comment) asks before anything is
+                // sent; cancelling keeps the picker open. Saved Messages alone is exempt.
+                final long novaSelfId = UserConfig.getInstance(currentAccount).getClientUserId();
+                long novaDialogId = novaSelfId;
+                for (int i = 0; i < dids.size(); i++) {
+                    if (dids.get(i).dialogId != novaSelfId) {
+                        novaDialogId = dids.get(i).dialogId;
+                        break;
+                    }
+                }
+                final StringBuilder novaText = new StringBuilder();
+                if (sendingText != null) {
+                    novaText.append(sendingText);
+                }
+                if (message != null) {
+                    novaText.append(' ').append(message);
+                }
+                final CharSequence novaMessage = message;
+                if (org.telegram.messenger.novagram.privacy.NovaForbiddenUi.confirmText(dialogsFragment != null ? dialogsFragment : getLastFragment(), novaText, novaDialogId, novaSelfId, () -> {
+                    novaForbiddenConfirmed = true;
+                    try {
+                        didSelectDialogs(dialogsFragment, dids, novaMessage, param, _notify, _scheduleDate, scheduleRepeatPeriod, topicsFragment);
+                    } finally {
+                        novaForbiddenConfirmed = false;
+                    }
+                })) {
+                    return false;
+                }
+            }
             boolean notify = dialogsFragment == null || dialogsFragment.notify || _notify;
             int scheduleDate = _scheduleDate != 0 ? _scheduleDate : dialogsFragment == null ? 0 : dialogsFragment.scheduleDate;
             final ChatActivity fragment;

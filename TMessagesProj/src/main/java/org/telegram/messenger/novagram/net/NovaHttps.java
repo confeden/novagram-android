@@ -54,6 +54,8 @@ public final class NovaHttps {
         public String location;
         /** The {@code Date} header as sent, for {@link NovaDoh#parseHttpDate}. */
         public String date;
+        /** The {@code ETag} header as sent, verbatim, for a later {@code If-None-Match}. */
+        public String etag;
         /** {@code Content-Length}, or -1 when the server did not say. */
         public long contentLength = -1;
         /** How many bytes of body reached the sink. */
@@ -227,6 +229,8 @@ public final class NovaHttps {
                     response.location = value;
                 } else if ("date".equalsIgnoreCase(name)) {
                     response.date = value;
+                } else if ("etag".equalsIgnoreCase(name)) {
+                    response.etag = value;
                 }
             }
         }

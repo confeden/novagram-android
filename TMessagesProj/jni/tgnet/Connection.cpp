@@ -472,6 +472,10 @@ void Connection::sendData(NativeByteBuffer *buff, bool reportAck, bool encrypted
         }
     }
 
+    // NovaGram: the WSS bridge learns the data centre from the header, so it is written
+    // there as it is for a proxy with a secret.
+    bool wssBridge = !firstPacketSent && useSecret == 0 && ConnectionsManager::wssBridgePort.load() != 0 && overrideProxyAddress.empty() && ConnectionsManager::getInstance(currentDatacenter->instanceNum).proxyAddress.empty() && !ConnectionsManager::getInstance(currentDatacenter->instanceNum).testBackend;
+
     uint32_t additinalPacketSize = 0;
     if (currentProtocolType == ProtocolTypeEF) {
         packetLength = buff->limit() / 4;
@@ -533,7 +537,7 @@ void Connection::sendData(NativeByteBuffer *buff, bool reportAck, bool encrypted
                     bytes[56] = bytes[57] = bytes[58] = bytes[59] = 0xee;
                 }
 
-                if (useSecret != 0) {
+                if (useSecret != 0 || wssBridge) {
                     int16_t datacenterId;
                     if (isMediaConnection) {
                         if (ConnectionsManager::getInstance(currentDatacenter->instanceNum).testBackend) {
@@ -610,6 +614,12 @@ void Connection::sendData(NativeByteBuffer *buff, bool reportAck, bool encrypted
         AES_ctr128_encrypt(bytes, bytes, 4, &encryptKey, encryptIv, encryptCount, &encryptNum);
     }
 
+    if (wssBridge) {
+        // NovaGram: the bridge answers only a local client that knows the process token.
+        NativeByteBuffer *tokenBuffer = BuffersStorage::getInstance().getFreeBuffer(16);
+        memcpy(tokenBuffer->bytes(), ConnectionsManager::wssBridgeToken, 16);
+        writeBuffer(tokenBuffer);
+    }
     buffer->rewind();
     writeBuffer(buffer);
     buff->rewind();

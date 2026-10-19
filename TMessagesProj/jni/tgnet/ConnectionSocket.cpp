@@ -160,6 +160,18 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
         }
     } else {
         proxyAuthState = 0;
+        // NovaGram: no proxy of the user's own (the branch above took it), and the
+        // WSS bridge is up: dial it instead of the data centre. Test backends and
+        // connections that carry a secret of their own are left alone.
+        uint16_t wssPort = ConnectionsManager::wssBridgePort.load();
+        if (wssPort != 0 && secret.empty() && !ConnectionsManager::getInstance(instanceNum).testBackend) {
+            ipv6 = false;
+            isIpv6 = false;
+            address = "127.0.0.1";
+            port = wssPort;
+            currentAddress = address;
+            currentPort = port;
+        }
         if ((socketFd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0)) < 0) {
             if (LOGS_ENABLED) DEBUG_E("connection(%p) can't create socket", this);
             closeSocket(1, -1);

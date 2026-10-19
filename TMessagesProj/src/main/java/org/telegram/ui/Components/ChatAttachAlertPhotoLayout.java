@@ -556,6 +556,10 @@ public class ChatAttachAlertPhotoLayout extends ChatAttachAlert.AttachAlertLayou
                     }
                 }
             }
+            // NovaGram: a listed link or material title in a caption asks before the media leaves.
+            if (parentAlert != null && parentAlert.novaConfirmCaptions(() -> sendButtonPressed(index, videoEditedInfo, notify, scheduleDate, scheduleRepeatPeriod, forceDocument))) {
+                return;
+            }
             if (parentAlert != null) {
                 parentAlert.setButtonPressed(false);
             }

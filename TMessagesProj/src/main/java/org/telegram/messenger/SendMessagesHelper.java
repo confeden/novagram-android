@@ -11976,6 +11976,16 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         return bitmap;
     }
 
+    /** NovaGram: whether videos go out at the original quality, the default. */
+    private static boolean novaOriginalVideo() {
+        final android.content.Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            return true;
+        }
+        return org.telegram.messenger.novagram.privacy.NovaPrivacySettings.global(context)
+                .isFeatureEnabled(org.telegram.messenger.novagram.privacy.NovaPrivacyFeature.ORIGINAL_MEDIA_QUALITY);
+    }
+
     private static VideoEditedInfo createCompressionSettings(String videoPath, long videoOffset) {
         int[] params = new int[AnimatedFileInfo.PARAM_NUM_COUNT];
         AnimatedFileNative.getVideoInfo(videoPath, params, videoOffset);
@@ -12030,7 +12040,9 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
             selectedCompression = compressionsCount;
         }
         boolean needCompress = false;
-        if (new File(videoPath).length() < 1024L * 1024L * 1000L) {
+        // NovaGram: the original quality by default. A video the owner keeps at
+        // original is sent as recorded; the data settings do not re-encode it.
+        if (!novaOriginalVideo() && new File(videoPath).length() < 1024L * 1024L * 1000L) {
             if (selectedCompression != compressionsCount || Math.max(videoEditedInfo.originalWidth, videoEditedInfo.originalHeight) > 1280) {
                 needCompress = true;
                 switch (selectedCompression) {

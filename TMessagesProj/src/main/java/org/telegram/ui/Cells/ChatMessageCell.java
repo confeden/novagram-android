@@ -20195,6 +20195,28 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
 
     private Paint selectionOverlayPaint;
 
+    /**
+     * NovaGram: the brick-red wash over the bubble of a message written by
+     * someone on the prohibited lists. The verdict is cached on the message,
+     * so a frame costs two integer compares; a bubble of an album
+     * ({@code currentPosition != null}) is not tinted, its background is drawn
+     * per piece elsewhere.
+     */
+    private void novaDrawForbiddenWash(Canvas canvas, float alpha) {
+        if (currentMessageObject == null || currentBackgroundDrawable == null || currentPosition != null) {
+            return;
+        }
+        if ((org.telegram.messenger.novagram.privacy.NovaForbiddenList.maskFor(currentMessageObject)
+                & org.telegram.messenger.novagram.privacy.NovaForbiddenList.PEOPLE_MASK) == 0) {
+            return;
+        }
+        Paint wash = org.telegram.messenger.novagram.privacy.NovaForbiddenList.overlayPaint();
+        int was = wash.getAlpha();
+        wash.setAlpha((int) (was * Math.max(0f, Math.min(1f, alpha))));
+        currentBackgroundDrawable.drawCached(canvas, backgroundCacheParams, wash);
+        wash.setAlpha(was);
+    }
+
     public void setupTextColors() {
         if (currentMessageObject.isOutOwner()) {
             Theme.chat_msgTextPaint.setColor(getThemedColor(Theme.key_chat_messageTextOut));
@@ -20959,6 +20981,7 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                 currentBackgroundDrawable.setAlpha((int) (255 * alphaInternal));
                 currentBackgroundDrawable.drawCached(canvas, backgroundCacheParams);
 //                }
+                novaDrawForbiddenWash(canvas, alphaInternal);
                 if (currentBackgroundShadowDrawable != null && currentPosition == null) {
                     currentBackgroundShadowDrawable.setAlpha((int) (255 * alphaInternal));
                     currentBackgroundShadowDrawable.draw(canvas);
@@ -21003,6 +21026,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
                     currentBackgroundShadowDrawable.setAlpha((int) (255 * alphaInternal));
                     currentBackgroundShadowDrawable.draw(canvas);
                 }
+
+                novaDrawForbiddenWash(canvas, alphaInternal);
 
                 if (transitionParams.changePinnedBottomProgress != 1f && currentPosition == null) {
                     if (currentMessageObject.isOutOwner()) {

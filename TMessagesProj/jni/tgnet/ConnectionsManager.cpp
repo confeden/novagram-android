@@ -3766,6 +3766,9 @@ void ConnectionsManager::init(uint32_t version, int32_t layer, int32_t apiId, st
     }
 }
 
+std::atomic<uint16_t> ConnectionsManager::wssBridgePort(0);
+uint8_t ConnectionsManager::wssBridgeToken[16] = {0};
+
 void ConnectionsManager::setProxySettings(std::string address, uint16_t port, std::string username, std::string password, std::string secret) {
     scheduleTask([&, address, port, username, password, secret] {
         std::string newSecret = decodeSecret(secret);

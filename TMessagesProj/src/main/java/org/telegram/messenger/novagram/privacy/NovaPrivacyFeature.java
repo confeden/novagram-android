@@ -60,7 +60,16 @@ public enum NovaPrivacyFeature {
     // Android Keystore. On by default and GLOBAL, matching the desktop fork:
     // upstream leaves tgnet.dat readable, which is what makes a copied
     // application data directory sign in on another device.
-    DEVICE_BINDING("device_binding", Scope.GLOBAL, true, true);
+    DEVICE_BINDING("device_binding", Scope.GLOBAL, true, true),
+    // Warns before a listed author is quoted, forwarded or answered, before a
+    // listed link is sent, and tints the listed author's bubbles. On by
+    // default and GLOBAL: the list is public and the same for every account.
+    FORBIDDEN_CONTENT_CHECK("forbidden_content_check", Scope.GLOBAL, true, true),
+    // Videos go out as the file they were recorded in, not re-encoded to the
+    // quality the data settings ask for. On by default and GLOBAL: the owner
+    // asked for the original by default; switching it off restores Telegram's
+    // own compression.
+    ORIGINAL_MEDIA_QUALITY("original_media_quality", Scope.GLOBAL, true, true);
 
     public enum Scope {
         GLOBAL,

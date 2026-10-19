@@ -4471,6 +4471,45 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         return editingMessageObject;
     }
 
+    /** NovaGram: set while a confirmed send re-enters the method that asked. */
+    private boolean novaForbiddenConfirmed;
+
+    /**
+     * NovaGram: the caption of a photo/video send (the comment line and the
+     * captions of the selected media). True when a warning was shown; then
+     * {@code resend} runs once if the user continues, nothing happens if not.
+     */
+    public boolean novaConfirmCaptions(Runnable resend) {
+        if (novaForbiddenConfirmed) {
+            return false;
+        }
+        final StringBuilder text = new StringBuilder();
+        if (getCommentView() != null && getCommentView().length() > 0) {
+            text.append(getCommentView().getText());
+        }
+        if (photoLayout != null) {
+            for (Object o : photoLayout.getSelectedPhotos().values()) {
+                CharSequence caption = null;
+                if (o instanceof MediaController.PhotoEntry) {
+                    caption = ((MediaController.PhotoEntry) o).caption;
+                } else if (o instanceof MediaController.SearchImage) {
+                    caption = ((MediaController.SearchImage) o).caption;
+                }
+                if (caption != null) {
+                    text.append(' ').append(caption);
+                }
+            }
+        }
+        return org.telegram.messenger.novagram.privacy.NovaForbiddenUi.confirmText(baseFragment, text, getDialogId(), UserConfig.getInstance(currentAccount).getClientUserId(), () -> {
+            novaForbiddenConfirmed = true;
+            try {
+                resend.run();
+            } finally {
+                novaForbiddenConfirmed = false;
+            }
+        });
+    }
+
     protected void applyCaption() {
         if (getCommentView().length() <= 0) {
             return;
@@ -4494,6 +4533,11 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
             return true;
         }
         applyCaption();
+
+        // NovaGram: a listed link or material title in a caption asks before the media leaves.
+        if (novaConfirmCaptions(() -> sendPressed(notify, scheduleDate, scheduleRepeatPeriod, effectId, invertMedia))) {
+            return true;
+        }
 
         if (animatorEphemeralMessageVisibility.getValue()) {
             setButtonPressed(true);

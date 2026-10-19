@@ -2438,7 +2438,8 @@ public class FileLoadOperation {
                     req.location = location;
                     req.offset = downloadOffset;
                     req.limit = currentDownloadChunkSize;
-                    req.cdn_supported = true;
+                    // NovaGram: a CDN redirect names a data centre that no WSS relay carries.
+                    req.cdn_supported = !org.telegram.messenger.novagram.net.NovaWss.carriesTraffic();
                     request = req;
                 }
             }

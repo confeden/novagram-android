@@ -313,6 +313,9 @@ public class ApplicationLoader extends Application {
             // Reads a static file on GitHub, so it belongs on the same side of
             // this check as push and billing: the decoy talks to nobody.
             NovaUpdateChecker.start();
+            // The public list behind the prohibited-content check: loaded from
+            // the bundle, synced at most once a day. Nothing for the decoy.
+            org.telegram.messenger.novagram.privacy.NovaForbiddenList.start();
             // Restores the sealed queue and resumes destroying what came due
             // while the application was closed.
             NovaAutoDelete.start();

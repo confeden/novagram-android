@@ -28,6 +28,7 @@ import org.telegram.messenger.novagram.privacy.NovaContactSync;
 import org.telegram.messenger.novagram.privacy.NovaCrashStickers;
 import org.telegram.messenger.novagram.privacy.NovaDeviceLock;
 import org.telegram.messenger.novagram.privacy.NovaFileNames;
+import org.telegram.messenger.novagram.privacy.NovaForbiddenList;
 import org.telegram.messenger.novagram.privacy.NovaOutgoingMetadata;
 import org.telegram.messenger.novagram.privacy.NovaNotificationContent;
 import org.telegram.messenger.novagram.privacy.NovaNotificationPrivacy;
@@ -115,6 +116,9 @@ public class NovaGramSettingsActivity extends BaseFragment {
     private static final int ID_ICON_PICKER = 28;
     private static final int ID_ICON_APPLY = 29;
     private static final int ID_SYNC_DEAUTH = 30;
+    private static final int ID_FORBIDDEN = 31;
+    private static final int ID_ORIGINAL_MEDIA = 33;
+    private static final int ID_WSS = 32;
 
     /** The order the PIN lock options are offered in, strictest first. */
     private static final NovaPinLockPolicy[] PIN_POLICIES = {
@@ -265,6 +269,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
             boolean enabled = !NovaNotificationPrivacy.isEnabled(currentAccount);
             NovaNotificationPrivacy.setEnabled(currentAccount, enabled);
             ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_WSS) {
+            boolean enabled = !org.telegram.messenger.novagram.net.NovaWss.isEnabled();
+            org.telegram.messenger.novagram.net.NovaWss.setEnabled(enabled);
+            ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_FILE_NAMES) {
             boolean enabled = !NovaFileNames.isEnabled();
             NovaFileNames.setEnabled(enabled);
@@ -283,6 +291,15 @@ public class NovaGramSettingsActivity extends BaseFragment {
         } else if (item.id == ID_CRASH_STICKERS) {
             boolean enabled = !NovaCrashStickers.isEnabled();
             NovaCrashStickers.setEnabled(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_FORBIDDEN) {
+            boolean enabled = !NovaForbiddenList.isEnabled();
+            NovaForbiddenList.setEnabled(getParentActivity(), enabled);
+            ((TextCheckCell) view).setChecked(enabled);
+        } else if (item.id == ID_ORIGINAL_MEDIA) {
+            NovaPrivacySettings settings = NovaPrivacySettings.global(getContext());
+            boolean enabled = !settings.isFeatureEnabled(NovaPrivacyFeature.ORIGINAL_MEDIA_QUALITY);
+            settings.setFeatureEnabled(NovaPrivacyFeature.ORIGINAL_MEDIA_QUALITY, enabled);
             ((TextCheckCell) view).setChecked(enabled);
         } else if (item.id == ID_HIDE_CONTENT) {
             boolean enabled = !NovaNotificationContent.isEnabled(getContext());
@@ -671,6 +688,10 @@ public class NovaGramSettingsActivity extends BaseFragment {
                 String.valueOf(enabledDohCount())));
         addAbout(R.string.NovaDohInfo);
 
+        items.add(Item.header(LocaleController.getString(R.string.NovaWssHeader)));
+        items.add(Item.check(ID_WSS, LocaleController.getString(R.string.NovaWssTitle)));
+        addAbout(R.string.NovaWssInfo);
+
         items.add(Item.header(LocaleController.getString(R.string.NovaIconHeader)));
         items.add(Item.icon());
         items.add(Item.text(ID_ICON_APPLY, LocaleController.getString(R.string.NovaIconApply)));
@@ -679,6 +700,14 @@ public class NovaGramSettingsActivity extends BaseFragment {
         items.add(Item.header(LocaleController.getString(R.string.NovaStickersHeader)));
         items.add(Item.check(ID_CRASH_STICKERS, LocaleController.getString(R.string.NovaCrashStickerTitle)));
         addAbout(R.string.NovaCrashStickerInfo);
+
+        items.add(Item.header(LocaleController.getString(R.string.NovaForbiddenHeader)));
+        items.add(Item.check(ID_FORBIDDEN, LocaleController.getString(R.string.NovaForbiddenTitle)));
+        addAbout(R.string.NovaForbiddenInfo);
+
+        items.add(Item.header(LocaleController.getString(R.string.NovaOriginalMediaHeader)));
+        items.add(Item.check(ID_ORIGINAL_MEDIA, LocaleController.getString(R.string.NovaOriginalMediaTitle)));
+        addAbout(R.string.NovaOriginalMediaInfo);
 
         items.add(Item.header(LocaleController.getString(R.string.NovaFilesHeader)));
         items.add(Item.check(ID_FILE_NAMES, LocaleController.getString(R.string.NovaFileNamesTitle)));
@@ -938,12 +967,18 @@ public class NovaGramSettingsActivity extends BaseFragment {
                     checked = NovaCallPolicy.relayOnly(getContext());
                 } else if (item.id == ID_PUSH_PREVIEW) {
                     checked = NovaNotificationPrivacy.isEnabled(currentAccount);
+                } else if (item.id == ID_WSS) {
+                    checked = org.telegram.messenger.novagram.net.NovaWss.isEnabled();
                 } else if (item.id == ID_FILE_NAMES) {
                     checked = NovaFileNames.isEnabled();
                 } else if (item.id == ID_METADATA) {
                     checked = NovaOutgoingMetadata.isEnabled();
                 } else if (item.id == ID_CRASH_STICKERS) {
                     checked = NovaCrashStickers.isEnabled();
+                } else if (item.id == ID_FORBIDDEN) {
+                    checked = NovaForbiddenList.isEnabled();
+                } else if (item.id == ID_ORIGINAL_MEDIA) {
+                    checked = NovaPrivacySettings.global(getContext()).isFeatureEnabled(NovaPrivacyFeature.ORIGINAL_MEDIA_QUALITY);
                 } else if (item.id == ID_HIDE_CONTENT) {
                     checked = NovaNotificationContent.isEnabled(getContext());
                 } else if (item.id == ID_NIGHT_SILENT) {

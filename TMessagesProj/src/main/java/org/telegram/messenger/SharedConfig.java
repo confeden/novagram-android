@@ -683,7 +683,9 @@ public class SharedConfig {
             debugVideoQualities = preferences.getBoolean("debugVideoQualities", false);
             shadowsInSections = preferences.getBoolean("shadowsInSections", false);
             debugViewMetrics = preferences.getBoolean("debugViewMetrics", false);
-            photoHighQualityDefault = preferences.getBoolean("photoHighQualityDefault", false);
+            // NovaGram: photos go out in the high-quality size by default (up to 2560 px,
+            // less JPEG compression) until the owner switches it off in the photo viewer.
+            photoHighQualityDefault = preferences.getBoolean("photoHighQualityDefault", true);
             photoLiveDefault = preferences.getBoolean("photoLiveDefault", false);
 
             loadDebugConfig(preferences);

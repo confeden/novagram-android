@@ -347,6 +347,9 @@ public class MessageObject {
     public Bitmap audioCover;
 
     public int currentAccount;
+    /** NovaGram: which prohibited lists the author belongs to, valid for one generation of the index. */
+    public int novaForbidden;
+    public int novaForbiddenGen;
 
     public TLRPC.TL_channelAdminLogEvent currentEvent;
 
