@@ -164,7 +164,7 @@ android {
                 // above the declared minSdkVersion is therefore never
                 // harmless, and the pair has to move together.
                 arguments '-DANDROID_STL=c++_static',
-                        '-DANDROID_PLATFORM=android-21',
+                        '-DANDROID_PLATFORM=android-23',
                         '-DCMAKE_JOB_POOLS=compile=4;link=2',
                         '-DCMAKE_JOB_POOL_COMPILE=compile',
                         '-DCMAKE_JOB_POOL_LINK=link' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
