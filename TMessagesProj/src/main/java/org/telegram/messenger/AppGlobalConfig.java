@@ -380,12 +380,6 @@ public class AppGlobalConfig {
         }
 
         public boolean get() {
-            // NovaGram: the upstream TON wallet (toncenter, rates, onramp, TON Connect, a
-            // websocket the client opens itself) stays off whatever the server says,
-            // as on desktop; no third-party request the owner did not ask for.
-            if ("wallet_available".equals(handler.name)) {
-                return false;
-            }
             return handler.value;
         }
 

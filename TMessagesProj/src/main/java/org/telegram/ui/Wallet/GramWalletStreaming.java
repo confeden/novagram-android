@@ -6,18 +6,13 @@ import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
 
-import com.neovisionaries.ws.client.OpeningHandshakeException;
-import com.neovisionaries.ws.client.WebSocket;
-import com.neovisionaries.ws.client.WebSocketAdapter;
-import com.neovisionaries.ws.client.WebSocketException;
-import com.neovisionaries.ws.client.WebSocketFactory;
-import com.neovisionaries.ws.client.WebSocketFrame;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.novagram.net.NovaWebSocket;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.tl.TL_toncenter;
 
@@ -41,7 +36,7 @@ public class GramWalletStreaming {
     private int generation;
     private int requestId = -1;
     private int reconnectAttempt;
-    private WebSocket socket;
+    private NovaWebSocket socket;
     private long lastPong;
     private void sendSubscription() {
         try {
@@ -158,11 +153,13 @@ public class GramWalletStreaming {
         final long connectingAt = SystemClock.elapsedRealtime();
         log("opening websocket; attempt=" + attempt);
         try {
-            // Preserve the server-issued URL, including its authentication parameters.
-            socket = new WebSocketFactory().setConnectionTimeout(10_000).createSocket(url);
-            socket.addListener(new WebSocketAdapter() {
+            // NovaGram: the URL is the server's, so its host is checked, resolved over
+            // DoH only, and dialled through the user's proxy (NovaWebSocket). The
+            // server-issued URL, including its authentication parameters, is kept.
+            socket = new NovaWebSocket(url);
+            socket.setListener(new NovaWebSocket.Listener() {
                 @Override
-                public void onConnected(WebSocket ws, Map<String, List<String>> headers) {
+                public void onOpen(NovaWebSocket ws) {
                     AndroidUtilities.runOnUIThread(() -> {
                         if (!isCurrent(ws, attempt)) {
                             log("closing stale connected websocket; attempt=" + attempt);
@@ -175,7 +172,7 @@ public class GramWalletStreaming {
                 }
 
                 @Override
-                public void onTextMessage(WebSocket ws, String text) {
+                public void onText(NovaWebSocket ws, String text) {
                     // Capture the complete payload before parsing, stale-event checks or address filtering.
                     FileLog.d("[gram-wallet-streaming] account=" + currentAccount
                         + " generation=" + attempt + " receive <- " + text);
@@ -194,21 +191,8 @@ public class GramWalletStreaming {
                 }
 
                 @Override
-                public void onConnectError(WebSocket ws, WebSocketException exception) {
-                    failed(ws, attempt, "connect error: " + errorDescription(exception));
-                }
-
-                @Override
-                public void onError(WebSocket ws, WebSocketException exception) {
-                    failed(ws, attempt, "websocket error: " + errorDescription(exception));
-                }
-
-                @Override
-                public void onDisconnected(WebSocket ws, WebSocketFrame serverCloseFrame,
-                                           WebSocketFrame clientCloseFrame, boolean closedByServer) {
-                    failed(ws, attempt, "websocket disconnected; closedByServer=" + closedByServer
-                        + ", serverCloseCode=" + (serverCloseFrame == null ? "none" : serverCloseFrame.getCloseCode())
-                        + ", clientCloseCode=" + (clientCloseFrame == null ? "none" : clientCloseFrame.getCloseCode()));
+                public void onClosed(NovaWebSocket ws, String reason) {
+                    failed(ws, attempt, "websocket closed: " + reason);
                 }
             });
             AndroidUtilities.runOnUIThread(timeout, TIMEOUT_MS);
@@ -219,22 +203,11 @@ public class GramWalletStreaming {
         }
     }
 
-    private boolean isCurrent(WebSocket ws, int attempt) {
+    private boolean isCurrent(NovaWebSocket ws, int attempt) {
         return running && socket == ws && generation == attempt;
     }
 
-    private static String errorDescription(WebSocketException exception) {
-        String description = String.valueOf(exception.getError());
-        if (exception instanceof OpeningHandshakeException) {
-            OpeningHandshakeException handshake = (OpeningHandshakeException) exception;
-            if (handshake.getStatusLine() != null) {
-                description += ", HTTP " + handshake.getStatusLine().getStatusCode();
-            }
-        }
-        return description;
-    }
-
-    private void failed(WebSocket ws, int attempt, String reason) {
+    private void failed(NovaWebSocket ws, int attempt, String reason) {
         AndroidUtilities.runOnUIThread(() -> {
             if (isCurrent(ws, attempt)) {
                 retry(reason);
@@ -338,7 +311,7 @@ public class GramWalletStreaming {
             connections().cancelRequest(requestId, true);
             requestId = -1;
         }
-        WebSocket previous = socket;
+        NovaWebSocket previous = socket;
         socket = null;
         if (previous != null) previous.disconnect();
     }
