@@ -385,8 +385,11 @@ public class NotificationsController extends BaseController implements Notificat
                     systemNotificationManager.createNotificationChannel(new NotificationChannel(
                             channelId, "TON Connect", NotificationManager.IMPORTANCE_DEFAULT));
                 }
+                // NovaGram: the fork's own hiding applies here too - the dapp's name is
+                // text a lock screen would show, exactly like a message preview.
                 boolean hidePreview = AndroidUtilities.needShowPasscode() || SharedConfig.isWaitingForPasscodeEnter
-                        || !getAccountInstance().getNotificationsSettings().getBoolean("EnablePreviewAll", true);
+                        || !getAccountInstance().getNotificationsSettings().getBoolean("EnablePreviewAll", true)
+                        || NovaNotificationPrivacy.isEnabled(currentAccount);
                 String message = TextUtils.isEmpty(dapp) || hidePreview
                         ? LocaleController.getString(R.string.NotificationWalletTonConnectRequest)
                         : LocaleController.formatString(R.string.NotificationWalletTonConnectRequestDapp, dapp);
