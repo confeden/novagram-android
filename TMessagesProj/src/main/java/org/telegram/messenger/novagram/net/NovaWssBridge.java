@@ -302,11 +302,18 @@ final class NovaWssBridge {
                 Ws ws = open(route, deadline);
                 NovaWss.noteWorked(dc, route);
                 NovaWss.log("dc " + dc + " open over " + route.host
-                        + (route.index == 0 ? " (official relay)" : " (mirror)"));
+                        + (route.index == 0 ? " (official relay)"
+                        : route.token != null ? " (own worker)" : " (mirror)"));
                 return ws;
             } catch (Throwable e) {
                 NovaWss.log("dc " + dc + " route " + route.host + " failed: " + e);
                 NovaWss.noteFailed(dc, route);
+                if (route.token != null) {
+                    String why = String.valueOf(e.getMessage());
+                    if (why.contains(" 401") || why.contains(" 403")) {
+                        NovaRelayToken.invalidate(route.token);
+                    }
+                }
             }
         }
         return null;
@@ -350,7 +357,8 @@ final class NovaWssBridge {
                     + "Accept-Language: ru,en;q=0.9\r\n"
                     + "Sec-WebSocket-Key: " + key
                     + "\r\nSec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n"
-                    + "Sec-WebSocket-Protocol: binary\r\n\r\n";
+                    + "Sec-WebSocket-Protocol: binary"
+                    + (route.token != null ? ", " + route.token : "") + "\r\n\r\n";
             OutputStream out = socket.getOutputStream();
             out.write(request.getBytes(StandardCharsets.US_ASCII));
             out.flush();

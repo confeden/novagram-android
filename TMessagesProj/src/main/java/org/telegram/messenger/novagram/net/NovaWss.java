@@ -90,8 +90,11 @@ public final class NovaWss {
         public final boolean front;
         /** Place in the ladder: 0 is the official relay. */
         public final int index;
+        /** Our own Worker: the token offered as a subprotocol; null on every other route. */
+        public final String token;
 
-        Route(String host, String ip, String path, boolean front, int index) {
+        Route(String host, String ip, String path, boolean front, int index, String token) {
+            this.token = token;
             this.host = host;
             this.ip = ip;
             this.path = path;
@@ -99,6 +102,8 @@ public final class NovaWss {
             this.index = index;
         }
     }
+
+    private static final String WORKER_HOST = "kws{dc}{media}.nova-app.eu";
 
     private static final Object LOCK = new Object();
     private static RouteSet current;
@@ -219,7 +224,7 @@ public final class NovaWss {
 
     private static Route makeRoute(Entry entry, int dc, int index, boolean front) {
         String ip = entry.ips[absDc(dc)];
-        return new Route(fill(entry.host, dc), ip == null ? "" : ip, fill(entry.path, dc), front, index);
+        return new Route(fill(entry.host, dc), ip == null ? "" : ip, fill(entry.path, dc), front, index, null);
     }
 
     private static Route routeAt(RouteSet set, int dc, int index) {
@@ -262,12 +267,25 @@ public final class NovaWss {
         if (relayAvailable(dc)) {
             result.add(routeAt(set, dc, 0));
         }
-        int others = set.own.size() + set.fronts.size();
+        // The Worker is the last rung, and only while a token is at hand. Asking
+        // never waits: a missing token is fetched in the background and the rung
+        // is left out of this attempt.
+        String token = NovaRelayToken.cached();
+        int others = set.own.size() + set.fronts.size() + (token != null ? 1 : 0);
         int start = Math.max(WALK_START[slotFor(dc)].get(), 1);
         for (int i = 0; result.size() < count && i != others; i++) {
-            result.add(routeAt(set, dc, 1 + (start - 1 + i) % others));
+            int index = 1 + (start - 1 + i) % others;
+            if (token != null && index == others) {
+                result.add(workerRoute(dc, index, token));
+            } else {
+                result.add(routeAt(set, dc, index));
+            }
         }
         return result;
+    }
+
+    private static Route workerRoute(int dc, int index, String token) {
+        return new Route(fill(WORKER_HOST, dc), "", "/apiws", false, index, token);
     }
 
     public static void noteWorked(int dc, Route route) {
@@ -291,7 +309,7 @@ public final class NovaWss {
             return;
         }
         RouteSet set = currentSet();
-        int others = set.own.size() + set.fronts.size();
+        int others = set.own.size() + set.fronts.size() + (NovaRelayToken.has() ? 1 : 0);
         if (others == 0) {
             return;
         }
@@ -469,6 +487,8 @@ public final class NovaWss {
         Utilities.globalQueue.postRunnable(() -> {
             loadCached();
             Utilities.globalQueue.postRunnable(NovaWss::sync, FIRST_DELAY_MS);
+            // Have a token ready before the ladder ever reaches the last rung.
+            Utilities.globalQueue.postRunnable(NovaRelayToken::prefetch, FIRST_DELAY_MS / 3);
         });
     }
 
