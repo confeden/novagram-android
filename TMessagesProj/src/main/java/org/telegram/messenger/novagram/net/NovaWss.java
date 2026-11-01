@@ -314,7 +314,14 @@ public final class NovaWss {
             return;
         }
         // The next one, wrapping and never onto the official relay.
-        WALK_START[slotFor(dc)].compareAndSet(route.index, 1 + (route.index % others));
+        // A slot at zero means the first route (attempt() reads it so); without
+        // this the compare never matched on a fresh start and the walk stood on
+        // the first mirrors for ever, never reaching the Worker at the end.
+        AtomicInteger slot = WALK_START[slotFor(dc)];
+        int current = slot.get();
+        if (Math.max(current, 1) == route.index) {
+            slot.compareAndSet(current, 1 + (route.index % others));
+        }
     }
 
     // --- the list: built in, then the published one -------------------------
