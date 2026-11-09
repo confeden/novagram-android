@@ -259,6 +259,7 @@ public final class NovaWss {
         if (!supports(dc)) {
             return result;
         }
+        checkNetwork();
         RouteSet set = currentSet();
         // The official relay first, unless it was found blocked a moment ago.
         // Several data centres share one ingress address, so one failure is
@@ -270,7 +271,7 @@ public final class NovaWss {
         // The Worker is the last rung, and only while a token is at hand. Asking
         // never waits: a missing token is fetched in the background and the rung
         // is left out of this attempt.
-        String token = NovaRelayToken.cached();
+        String token = vpnNow ? null : NovaRelayToken.cached();
         int others = set.own.size() + set.fronts.size() + (token != null ? 1 : 0);
         int start = Math.max(WALK_START[slotFor(dc)].get(), 1);
         for (int i = 0; result.size() < count && i != others; i++) {
@@ -282,6 +283,61 @@ public final class NovaWss {
             }
         }
         return result;
+    }
+
+    // --- the network under us ----------------------------------------------
+
+    private static volatile boolean vpnNow;
+    private static String networkSeen;
+
+    /**
+     * Whether this app's traffic leaves through a VPN right now. Asked per app:
+     * a VPN that excludes this app reports the underlying network here.
+     */
+    static boolean onVpn() {
+        return vpnNow;
+    }
+
+    /**
+     * Notices a change of the network under the client - Wi-Fi to mobile, a VPN
+     * coming up or going down - and forgets what the old one taught: the
+     * official relay is tried directly again instead of staying marked blocked
+     * for ten minutes, and the walk starts again from the first mirror.
+     *
+     * Owner decision: behind a VPN the own Cloudflare Worker is never used (nor
+     * is a token enrolled for it); the official relay and the public mirrors
+     * stay. A VPN user is not the line the Worker is paid for.
+     */
+    private static void checkNetwork() {
+        boolean vpn = false;
+        String signature = "none";
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    ApplicationLoader.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.Network network = cm == null ? null : cm.getActiveNetwork();
+            if (network != null) {
+                android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                vpn = caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN);
+                signature = network + (vpn ? "/vpn" : "/direct");
+            }
+        } catch (Throwable e) {
+            return;
+        }
+        vpnNow = vpn;
+        boolean changed;
+        synchronized (LOCK) {
+            changed = networkSeen != null && !networkSeen.equals(signature);
+            networkSeen = signature;
+        }
+        if (changed) {
+            for (AtomicLong blocked : RELAY_BLOCKED_UNTIL) {
+                blocked.set(0);
+            }
+            for (AtomicInteger slot : WALK_START) {
+                slot.set(0);
+            }
+            log("network changed (" + (vpn ? "vpn" : "direct") + "): direct relay retried, walk restarted");
+        }
     }
 
     private static Route workerRoute(int dc, int index, String token) {
@@ -309,7 +365,7 @@ public final class NovaWss {
             return;
         }
         RouteSet set = currentSet();
-        int others = set.own.size() + set.fronts.size() + (NovaRelayToken.has() ? 1 : 0);
+        int others = set.own.size() + set.fronts.size() + (!vpnNow && NovaRelayToken.has() ? 1 : 0);
         if (others == 0) {
             return;
         }

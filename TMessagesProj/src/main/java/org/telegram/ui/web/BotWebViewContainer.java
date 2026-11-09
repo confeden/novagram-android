@@ -4313,6 +4313,15 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                     d("shouldInterceptRequest " + (request == null ? null : request.getUrl()));
+                    // NovaGram: the mini-app SDK on telegram.org is dropped with the rest
+                    // of Telegram's addresses on a censored line; serve a kept copy then.
+                    if (request != null && "GET".equalsIgnoreCase(request.getMethod())
+                            && org.telegram.messenger.novagram.net.NovaWebAppSdk.matches(request.getUrl())) {
+                        WebResourceResponse sdk = org.telegram.messenger.novagram.net.NovaWebAppSdk.serve(request.getUrl());
+                        if (sdk != null) {
+                            return sdk;
+                        }
+                    }
                     if (request != null && isTonsite(request.getUrl())) {
                         d("proxying ton");
                         firstRequest = false;
@@ -4433,6 +4442,12 @@ public abstract class BotWebViewContainer extends FrameLayout implements Notific
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
                     d("shouldInterceptRequest " + url);
+                    if (org.telegram.messenger.novagram.net.NovaWebAppSdk.matches(url)) {
+                        WebResourceResponse sdk = org.telegram.messenger.novagram.net.NovaWebAppSdk.serve(android.net.Uri.parse(url));
+                        if (sdk != null) {
+                            return sdk;
+                        }
+                    }
                     if (isTonsite(url)) {
                         d("proxying ton");
                         return proxyTON("GET", url, null);

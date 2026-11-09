@@ -112,7 +112,7 @@ final class NovaRelayToken {
 
     /** Starts at most one background fetch, if the setting is on and no back-off is running. */
     static void prefetch() {
-        if (!NovaWss.isEnabled() || NovaDecoyState.isActive()) {
+        if (!NovaWss.isEnabled() || NovaDecoyState.isActive() || NovaWss.onVpn()) {
             return;
         }
         synchronized (LOCK) {
